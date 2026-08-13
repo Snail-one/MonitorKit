@@ -136,15 +136,19 @@ scrape_configs:
 1. 探针地址，例如 `node01.example.com:9100`。
 2. Prometheus 任务名称。
 3. 连接方式，默认使用 mTLS/HTTPS，也可以选择普通 HTTP。
-4. mTLS 模式下使用的 node_exporter 服务端根 CA、Prometheus 客户端证书和客户端私钥路径。
+4. mTLS 模式下依次填写 node_exporter 服务端根 CA、Prometheus 客户端证书和客户端私钥。
 
-默认客户端文件路径：
+证书输入方式与 Prometheus 主程序的 mTLS 配置相同：脚本按照 `vim → nano → vi` 自动选择编辑器，显示固定文件路径，按回车打开文件并粘贴 PEM 内容，保存退出后自动校验。无需手动输入路径。
+
+固定文件路径：
 
 ```text
 /etc/prometheus/client/node-server-ca.crt
 /etc/prometheus/client/prometheus-client.crt
 /etc/prometheus/client/prometheus-client.key
 ```
+
+脚本会校验证书和私钥的 PEM 格式，并检查 Prometheus 客户端证书与客户端私钥是否匹配。输入 `q` 可以随时取消并返回主菜单。已有文件不会被预先清空，打开编辑器时可以直接检查或更新现有内容。
 
 向导不会直接修改正在使用的配置。它会先生成候选配置并执行 `promtool check config`；校验通过后才写入 `/etc/prometheus/prometheus.yml` 并重载服务。配置校验失败时原配置不变，服务重载失败时会自动恢复原配置。
 

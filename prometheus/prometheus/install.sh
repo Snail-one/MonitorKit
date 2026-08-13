@@ -477,37 +477,6 @@ is_valid_target_address() {
   return 1
 }
 
-prompt_existing_file_path() {
-  local content_name="$1"
-  local default_path="$2"
-  local variable_name="$3"
-  local input=""
-  local selected_path=""
-
-  while true; do
-    printf '%s%s路径（默认 %s，q 返回主菜单）：%s' "${BLUE}" "${content_name}" "${default_path}" "${RESET}" >&2
-    IFS= read -e -r input <"${INTERACTIVE_DEVICE}" || die "读取${content_name}路径失败"
-    case "${input}" in
-      q|Q)
-        RETURN_TO_MAIN=1
-        result "正在返回主菜单"
-        return 0
-        ;;
-    esac
-    selected_path="${input:-${default_path}}"
-    if [[ ! "${selected_path}" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
-      warn "输入无效：请输入不含空格的绝对路径，或输入 q 返回主菜单"
-      continue
-    fi
-    if [[ ! -s "${selected_path}" ]]; then
-      warn "文件不存在或内容为空：${selected_path}"
-      continue
-    fi
-    printf -v "${variable_name}" '%s' "${selected_path}"
-    return 0
-  done
-}
-
 add_node_exporter_target() {
   local config_file="${CONFIG_DIR}/prometheus.yml"
   local target=""
@@ -516,16 +485,17 @@ add_node_exporter_target() {
   local default_job_name=""
   local scrape_scheme="https"
   local scrape_choice=""
-  local ca_file=""
-  local cert_file=""
-  local key_file=""
+  local client_dir="/etc/prometheus/client"
+  local ca_file="/etc/prometheus/client/node-server-ca.crt"
+  local cert_file="/etc/prometheus/client/prometheus-client.crt"
+  local key_file="/etc/prometheus/client/prometheus-client.key"
   local temp_dir=""
   local fragment_file=""
   local candidate_file=""
   local backup_file=""
 
   print_banner "添加 node_exporter 探针"
-  require_commands awk cat cp grep install mktemp sed systemctl
+  require_commands awk cat chmod chown cp grep install mktemp openssl sed sha256sum systemctl touch
   set_interactive_device
   [[ -x "${BIN_DIR}/promtool" ]] || die "缺少 promtool，无法安全修改 Prometheus 配置"
   [[ -f "${config_file}" ]] || die "Prometheus 配置不存在：${config_file}"
@@ -583,17 +553,6 @@ add_node_exporter_target() {
     esac
   done
 
-  if [[ "${scrape_scheme}" == "https" ]]; then
-    printf '\n'
-    info "以下是 Prometheus 作为客户端抓取 node_exporter 使用的证书"
-    prompt_existing_file_path "node_exporter 服务端根 CA" "/etc/prometheus/client/node-server-ca.crt" ca_file
-    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
-    prompt_existing_file_path "Prometheus 客户端证书" "/etc/prometheus/client/prometheus-client.crt" cert_file
-    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
-    prompt_existing_file_path "Prometheus 客户端私钥" "/etc/prometheus/client/prometheus-client.key" key_file
-    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
-  fi
-
   if grep -Fq -- "${target}" "${config_file}"; then
     warn "配置中已经存在该探针地址：${target}"
     RETURN_TO_MAIN=1
@@ -608,6 +567,38 @@ add_node_exporter_target() {
     RETURN_TO_MAIN=1
     result "原配置未修改，正在返回主菜单"
     return 0
+  fi
+
+  if [[ "${scrape_scheme}" == "https" ]]; then
+    printf '\n'
+    step "配置 Prometheus 抓取探针使用的 mTLS 证书"
+    info "脚本将使用固定目录：${client_dir}"
+    select_text_editor
+    install -d -o root -g "${PROMETHEUS_GROUP}" -m 0750 "${client_dir}"
+    touch "${ca_file}" "${cert_file}" "${key_file}"
+    chown root:"${PROMETHEUS_GROUP}" "${ca_file}" "${cert_file}" "${key_file}"
+    chmod 0640 "${ca_file}" "${cert_file}" "${key_file}"
+
+    edit_pem_file "node_exporter 服务端根 CA 证书（信任锚）" "${ca_file}" certificate \
+      "签发 node_exporter 服务端证书的根 CA 公共证书；多个 CA 可按 PEM 格式组成证书包" \
+      "node_exporter 服务端证书、客户端证书或根 CA 私钥"
+    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+
+    while true; do
+      edit_pem_file "Prometheus 抓取探针客户端证书" "${cert_file}" certificate \
+        "Prometheus 连接 node_exporter 时出示的 clientAuth 客户端证书" \
+        "Prometheus 服务端证书、node_exporter 服务端证书或 CA 私钥"
+      [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+      edit_pem_file "Prometheus 抓取探针客户端私钥" "${key_file}" private_key \
+        "与上一步 Prometheus 客户端证书匹配的未加密私钥" \
+        "服务端私钥、证书或加密私钥"
+      [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+      if certificate_matches_private_key "${cert_file}" "${key_file}"; then
+        result "Prometheus 客户端证书和私钥匹配"
+        break
+      fi
+      warn "Prometheus 客户端证书和私钥不匹配，请重新编辑"
+    done
   fi
 
   temp_dir="$(mktemp -d -t prometheus-add-target.XXXXXXXX)"
