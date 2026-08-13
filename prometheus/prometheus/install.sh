@@ -119,6 +119,14 @@ die() {
   exit 1
 }
 
+on_error() {
+  local exit_code="$1"
+  local line_number="$2"
+  printf '%s[错误]%s 脚本在第 %s 行执行失败（退出码：%s）\n' \
+    "${RED}" "${RESET}" "${line_number}" "${exit_code}" >&2
+  exit "${exit_code}"
+}
+
 cleanup() {
   if [[ -n "${WORK_DIR}" ]]; then
     rm -rf -- "${WORK_DIR}"
@@ -630,15 +638,15 @@ main() {
   result "root 权限检查通过"
 
   local requested_version="${PROMETHEUS_VERSION}"
-  local version
-  local arch
-  local current_version
-  local action
-  local archive
-  local release_url
-  local work_dir
-  local checksum
-  local extracted_dir
+  local version=""
+  local arch=""
+  local current_version=""
+  local action=""
+  local archive=""
+  local release_url=""
+  local work_dir=""
+  local checksum=""
+  local extracted_dir=""
   local download_required=0
 
   require_commands sed
@@ -766,13 +774,15 @@ main() {
     install_mtls_config "${work_dir}"
   fi
 
-  if [[ "${download_required}" == "1" && -d "${extracted_dir}/consoles" ]]; then
-    install -d -m 0755 "${CONFIG_DIR}/consoles"
-    cp -a "${extracted_dir}/consoles/." "${CONFIG_DIR}/consoles/"
-  fi
-  if [[ "${download_required}" == "1" && -d "${extracted_dir}/console_libraries" ]]; then
-    install -d -m 0755 "${CONFIG_DIR}/console_libraries"
-    cp -a "${extracted_dir}/console_libraries/." "${CONFIG_DIR}/console_libraries/"
+  if [[ "${download_required}" == "1" ]]; then
+    if [[ -d "${extracted_dir}/consoles" ]]; then
+      install -d -m 0755 "${CONFIG_DIR}/consoles"
+      cp -a "${extracted_dir}/consoles/." "${CONFIG_DIR}/consoles/"
+    fi
+    if [[ -d "${extracted_dir}/console_libraries" ]]; then
+      install -d -m 0755 "${CONFIG_DIR}/console_libraries"
+      cp -a "${extracted_dir}/console_libraries/." "${CONFIG_DIR}/console_libraries/"
+    fi
   fi
 
   if [[ ! -e "${CONFIG_DIR}/prometheus.yml" ]]; then
@@ -936,6 +946,7 @@ uninstall_prometheus() {
   fi
 }
 
+trap 'on_error "$?" "$LINENO"' ERR
 trap cleanup EXIT
 init_colors
 main "$@"

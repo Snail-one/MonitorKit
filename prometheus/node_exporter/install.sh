@@ -118,6 +118,14 @@ die() {
   exit 1
 }
 
+on_error() {
+  local exit_code="$1"
+  local line_number="$2"
+  printf '%s[错误]%s 脚本在第 %s 行执行失败（退出码：%s）\n' \
+    "${RED}" "${RESET}" "${line_number}" "${exit_code}" >&2
+  exit "${exit_code}"
+}
+
 cleanup() {
   if [[ -n "${WORK_DIR}" ]]; then
     rm -rf -- "${WORK_DIR}"
@@ -723,15 +731,15 @@ main() {
   result "root 权限检查通过"
 
   local requested_version="${NODE_EXPORTER_VERSION}"
-  local version
-  local arch
-  local current_version
-  local action
-  local archive
-  local release_url
-  local work_dir
-  local checksum
-  local extracted_dir
+  local version=""
+  local arch=""
+  local current_version=""
+  local action=""
+  local archive=""
+  local release_url=""
+  local work_dir=""
+  local checksum=""
+  local extracted_dir=""
   local download_required=0
 
   require_commands sed
@@ -878,6 +886,7 @@ main() {
   print_completion_card "${action}" "${version}"
 }
 
+trap 'on_error "$?" "$LINENO"' ERR
 trap cleanup EXIT
 init_colors
 main "$@"
