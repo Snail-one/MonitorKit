@@ -14,9 +14,9 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 sudo ./install.sh
 ```
 
-默认监听端口为 `9100`，指标地址为 `http://服务器IP:9100/metrics`。
+脚本默认通过 GitHub Releases API 获取并安装 node_exporter 最新正式版本。检测到代理环境且 API 访问失败时，会自动绕过代理进行直连重试。默认监听端口为 `9100`，指标地址为 `http://服务器IP:9100/metrics`。
 
-本地安装时可自定义版本或监听地址：
+本地安装时可指定固定版本或监听地址：
 
 ```bash
 sudo NODE_EXPORTER_VERSION=1.12.1 \

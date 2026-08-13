@@ -2,13 +2,13 @@
 # Install or upgrade Prometheus node_exporter as a systemd service.
 #
 # Optional environment variables:
-#   NODE_EXPORTER_VERSION=1.12.1
+#   NODE_EXPORTER_VERSION=latest
 #   NODE_EXPORTER_LISTEN_ADDRESS=0.0.0.0:9100
 #   DOWNLOAD_BASE_URL=https://github.com/prometheus/node_exporter/releases/download
 
 set -Eeuo pipefail
 
-NODE_EXPORTER_VERSION="${NODE_EXPORTER_VERSION:-1.12.1}"
+NODE_EXPORTER_VERSION="${NODE_EXPORTER_VERSION:-latest}"
 NODE_EXPORTER_LISTEN_ADDRESS="${NODE_EXPORTER_LISTEN_ADDRESS:-0.0.0.0:9100}"
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://github.com/prometheus/node_exporter/releases/download}"
 
@@ -24,6 +24,7 @@ BLUE=""
 GREEN=""
 YELLOW=""
 RED=""
+LATEST_VERSION=""
 
 init_colors() {
   if [[ -n "${NO_COLOR+x}" ]]; then
@@ -109,8 +110,10 @@ node_exporter 探针一键安装、更新与卸载脚本。
   sudo ./install.sh [install]
   sudo ./install.sh uninstall
 
+默认通过 GitHub Releases API 安装最新正式版本，也可以指定固定版本。
+
 可选安装环境变量：
-  NODE_EXPORTER_VERSION=1.12.1
+  NODE_EXPORTER_VERSION=latest
   NODE_EXPORTER_LISTEN_ADDRESS=0.0.0.0:9100
   DOWNLOAD_BASE_URL=https://github.com/prometheus/node_exporter/releases/download
 EOF
@@ -176,6 +179,59 @@ download_asset() {
   else
     die "需要 curl 或 wget 才能下载安装包"
   fi
+}
+
+proxy_configured() {
+  [[ -n "${HTTPS_PROXY:-}" || -n "${https_proxy:-}" ||
+     -n "${HTTP_PROXY:-}" || -n "${http_proxy:-}" ||
+     -n "${ALL_PROXY:-}" || -n "${all_proxy:-}" ]]
+}
+
+download_api_direct() {
+  local url="$1"
+  local destination="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl --fail --location --silent --show-error --retry 3 --connect-timeout 15 \
+      --noproxy '*' --output "${destination}" "${url}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget --no-proxy --quiet --tries=3 --timeout=15 --output-document="${destination}" "${url}"
+  else
+    die "需要 curl 或 wget 才能访问 GitHub API"
+  fi
+}
+
+release_version_from_metadata() {
+  sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' "$1" | sed -n '1p'
+}
+
+fetch_latest_version() {
+  local metadata_file="$1"
+  local api_url="https://api.github.com/repos/prometheus/node_exporter/releases/latest"
+  local release_tag=""
+
+  if download "${api_url}" "${metadata_file}"; then
+    release_tag="$(release_version_from_metadata "${metadata_file}")"
+  fi
+  if [[ "${release_tag}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+    LATEST_VERSION="${release_tag#v}"
+    info "API 访问方式：当前网络配置"
+    return
+  fi
+
+  if proxy_configured; then
+    warn "通过代理访问 GitHub API 失败，正在尝试直连"
+    rm -f -- "${metadata_file}"
+    if download_api_direct "${api_url}" "${metadata_file}"; then
+      release_tag="$(release_version_from_metadata "${metadata_file}")"
+    fi
+    if [[ "${release_tag}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+      LATEST_VERSION="${release_tag#v}"
+      info "API 访问方式：绕过代理直连"
+      return
+    fi
+  fi
+
+  die "无法通过 GitHub Releases API 获取 node_exporter 最新正式版本"
 }
 
 installed_version() {
@@ -293,7 +349,8 @@ main() {
   require_commands awk getent groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
   result "运行环境检查通过"
 
-  local version="${NODE_EXPORTER_VERSION#v}"
+  local requested_version="${NODE_EXPORTER_VERSION}"
+  local version
   local arch
   local current_version
   local action
@@ -303,9 +360,24 @@ main() {
   local checksum
   local extracted_dir
 
-  validate_version "${version}"
   validate_listen_address "${NODE_EXPORTER_LISTEN_ADDRESS}"
   arch="$(detect_arch)"
+  work_dir="$(mktemp -d -t node-exporter-install.XXXXXXXX)"
+  trap 'rm -rf -- "${work_dir}"' EXIT
+
+  printf '\n'
+  step "检查发布版本"
+  if [[ "${requested_version}" == "latest" ]]; then
+    info "正在通过 GitHub Releases API 获取最新正式版本"
+    fetch_latest_version "${work_dir}/release.json"
+    version="${LATEST_VERSION}"
+    result "最新正式版本：v${version}"
+  else
+    version="${requested_version#v}"
+    validate_version "${version}"
+    info "使用指定版本：v${version}"
+  fi
+
   current_version="$(installed_version)"
   current_version="${current_version:-未安装}"
   if [[ "${current_version}" == "${version}" ]]; then
@@ -318,8 +390,6 @@ main() {
   print_release_info "${arch}" "${current_version}" "${version}" "${action}"
   archive="node_exporter-${version}.linux-${arch}.tar.gz"
   release_url="${DOWNLOAD_BASE_URL%/}/v${version}"
-  work_dir="$(mktemp -d -t node-exporter-install.XXXXXXXX)"
-  trap 'rm -rf -- "${work_dir}"' EXIT
 
   printf '\n'
   step "下载发布文件"
