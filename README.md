@@ -30,6 +30,12 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 
 详细说明：[prometheus/node_exporter/README.md](prometheus/node_exporter/README.md)
 
+卸载命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/node_exporter/install.sh | sudo bash -s -- uninstall
+```
+
 ## 目录结构
 
 ```text

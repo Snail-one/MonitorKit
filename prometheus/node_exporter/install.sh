@@ -27,7 +27,18 @@ die() {
 }
 
 usage() {
-  sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+  cat <<'EOF'
+Install, upgrade, or uninstall Prometheus node_exporter.
+
+Usage:
+  sudo ./install.sh [install]
+  sudo ./install.sh uninstall
+
+Optional environment variables for installation:
+  NODE_EXPORTER_VERSION=1.12.1
+  NODE_EXPORTER_LISTEN_ADDRESS=0.0.0.0:9100
+  DOWNLOAD_BASE_URL=https://github.com/prometheus/node_exporter/releases/download
+EOF
 }
 
 require_root() {
@@ -124,12 +135,49 @@ EOF
   rm -f -- "${service_tmp}"
 }
 
-main() {
-  if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    usage
-    exit 0
+uninstall_node_exporter() {
+  require_root
+  require_commands systemctl getent id userdel groupdel
+
+  log "stopping and disabling node_exporter"
+  systemctl disable --now node_exporter.service >/dev/null 2>&1 || true
+
+  rm -f -- "${SERVICE_FILE}"
+  rm -f -- "/etc/systemd/system/multi-user.target.wants/node_exporter.service"
+  rm -f -- "${BIN_DIR}/node_exporter"
+
+  systemctl daemon-reload
+  systemctl reset-failed node_exporter.service >/dev/null 2>&1 || true
+
+  if id "${EXPORTER_USER}" >/dev/null 2>&1; then
+    userdel "${EXPORTER_USER}"
   fi
-  [[ "$#" -eq 0 ]] || die "unknown argument: $1 (try --help)"
+  if getent group "${EXPORTER_GROUP}" >/dev/null; then
+    groupdel "${EXPORTER_GROUP}"
+  fi
+
+  log "node_exporter has been uninstalled"
+}
+
+main() {
+  case "${1:-install}" in
+    -h|--help|help)
+      [[ "$#" -le 1 ]] || die "too many arguments (try --help)"
+      usage
+      exit 0
+      ;;
+    uninstall|--uninstall|-u)
+      [[ "$#" -eq 1 ]] || die "too many arguments (try --help)"
+      uninstall_node_exporter
+      exit 0
+      ;;
+    install|--install|-i)
+      [[ "$#" -le 1 ]] || die "too many arguments (try --help)"
+      ;;
+    *)
+      die "unknown command: $1 (try --help)"
+      ;;
+  esac
 
   require_root
   require_commands uname tar sha256sum install getent id groupadd useradd systemctl

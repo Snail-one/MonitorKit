@@ -29,3 +29,19 @@ sudo NODE_EXPORTER_VERSION=1.12.1 \
 ```bash
 systemctl status node_exporter
 ```
+
+## 卸载
+
+在线卸载：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/node_exporter/install.sh | sudo bash -s -- uninstall
+```
+
+本地卸载：
+
+```bash
+sudo ./install.sh uninstall
+```
+
+卸载命令会停止服务，并删除 node_exporter 服务文件、程序文件及专用系统用户组，不会影响 Prometheus 服务端。
