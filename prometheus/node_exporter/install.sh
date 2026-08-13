@@ -11,10 +11,19 @@ set -Eeuo pipefail
 NODE_EXPORTER_VERSION="${NODE_EXPORTER_VERSION:-latest}"
 NODE_EXPORTER_LISTEN_ADDRESS="${NODE_EXPORTER_LISTEN_ADDRESS:-0.0.0.0:9100}"
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://github.com/prometheus/node_exporter/releases/download}"
+NODE_EXPORTER_MTLS_MODE_PRESET=0
+[[ -n "${NODE_EXPORTER_MTLS_ENABLED+x}" ]] && NODE_EXPORTER_MTLS_MODE_PRESET=1
+NODE_EXPORTER_MTLS_ENABLED="${NODE_EXPORTER_MTLS_ENABLED:-0}"
+NODE_EXPORTER_TLS_CERT_CONTENT=""
+NODE_EXPORTER_TLS_KEY_CONTENT=""
+NODE_EXPORTER_CLIENT_CA_CONTENT=""
 
 readonly EXPORTER_USER="node_exporter"
 readonly EXPORTER_GROUP="node_exporter"
 readonly BIN_DIR="/usr/local/bin"
+readonly CONFIG_DIR="/etc/node_exporter"
+readonly TLS_DIR="${CONFIG_DIR}/tls"
+readonly WEB_CONFIG_FILE="${CONFIG_DIR}/web.yml"
 readonly SERVICE_FILE="/etc/systemd/system/node_exporter.service"
 
 RESET=""
@@ -25,6 +34,10 @@ GREEN=""
 YELLOW=""
 RED=""
 LATEST_VERSION=""
+WEB_CONFIG_ARGUMENT=""
+WEB_SCHEME="http"
+MTLS_STATUS="关闭"
+INTERACTIVE_DEVICE=""
 
 init_colors() {
   if [[ -n "${NO_COLOR+x}" ]]; then
@@ -59,6 +72,7 @@ print_release_info() {
   printf '%s│ %s目标版本：%s%s%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${BOLD}" "$3" "${RESET}"
   printf '%s│ %s执行操作：%s%s%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${BOLD}" "$4" "${RESET}"
   printf '%s│ %s监听地址：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${NODE_EXPORTER_LISTEN_ADDRESS}"
+  printf '%s│ %smTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${MTLS_STATUS}"
   printf '%s%s%s\n' "${ORANGE}" "╰──────────────────────────────────────────────" "${RESET}"
 }
 
@@ -67,7 +81,7 @@ print_completion_card() {
   printf '%s│ %s%s完成%s\n' "${ORANGE}" "${BOLD}${GREEN}" "$1" "${RESET}"
   printf '%s│ %s版本：%s%s%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${BOLD}" "$2" "${RESET}"
   printf '%s│ %s服务：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "node_exporter.service"
-  printf '%s│ %s指标：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "http://${NODE_EXPORTER_LISTEN_ADDRESS}/metrics"
+  printf '%s│ %s指标：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${WEB_SCHEME}://${NODE_EXPORTER_LISTEN_ADDRESS}/metrics"
   printf '%s%s%s\n' "${ORANGE}" "╰──────────────────────────────────────────────" "${RESET}"
 }
 
@@ -107,7 +121,9 @@ usage() {
 node_exporter 探针一键安装、更新与卸载脚本。
 
 用法：
-  sudo ./install.sh [install]
+  sudo ./install.sh             # 交互选择 HTTP 或 mTLS
+  sudo ./install.sh http        # 直接安装 HTTP 模式
+  sudo ./install.sh mtls
   sudo ./install.sh uninstall
 
 默认通过 GitHub Releases API 安装最新正式版本，也可以指定固定版本。
@@ -116,6 +132,11 @@ node_exporter 探针一键安装、更新与卸载脚本。
   NODE_EXPORTER_VERSION=latest
   NODE_EXPORTER_LISTEN_ADDRESS=0.0.0.0:9100
   DOWNLOAD_BASE_URL=https://github.com/prometheus/node_exporter/releases/download
+
+mTLS 环境变量：
+  NODE_EXPORTER_MTLS_ENABLED=1
+
+mTLS 模式会交互读取服务端证书、私钥和客户端 CA 的 PEM 内容。
 EOF
 }
 
@@ -155,6 +176,139 @@ validate_listen_address() {
     die "无效的 NODE_EXPORTER_LISTEN_ADDRESS：${value}"
   fi
   (( port >= 1 && port <= 65535 )) || die "监听端口必须在 1 到 65535 之间"
+}
+
+set_interactive_device() {
+  if [[ -c /dev/tty ]] && { : </dev/tty; } 2>/dev/null; then
+    INTERACTIVE_DEVICE="/dev/tty"
+  elif [[ -t 0 ]]; then
+    INTERACTIVE_DEVICE="/dev/stdin"
+  else
+    die "当前环境没有可用的交互式终端"
+  fi
+}
+
+prompt_pem_content() {
+  local content_name="$1"
+  local variable_name="$2"
+  local content=""
+  local line=""
+
+  set_interactive_device
+  info "请粘贴${content_name}的 PEM 内容，完成后单独输入一行 EOF"
+  while true; do
+    if ! IFS= read -r -s line <"${INTERACTIVE_DEVICE}"; then
+      printf '\n' >&2
+      die "读取${content_name}失败"
+    fi
+    [[ "${line}" == "EOF" ]] && break
+    content+="${line}"$'\n'
+  done
+  printf '\n' >&2
+  [[ -n "${content}" ]] || die "${content_name}内容不能为空"
+  printf -v "${variable_name}" '%s' "${content}"
+  result "已接收${content_name}"
+}
+
+choose_install_mode() {
+  [[ "${NODE_EXPORTER_MTLS_MODE_PRESET}" == "0" ]] || return
+  set_interactive_device
+
+  printf '%s  1.%s 普通 HTTP\n' "${GREEN}" "${RESET}" >&2
+  printf '%s  2.%s mTLS（HTTPS，强制验证客户端证书）\n' "${ORANGE}" "${RESET}" >&2
+  while true; do
+    printf '%s请选择安装方式 [1-2]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
+    local choice=""
+    IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取安装方式失败"
+    case "${choice}" in
+      ""|1)
+        NODE_EXPORTER_MTLS_ENABLED=0
+        result "已选择普通 HTTP 模式"
+        return
+        ;;
+      2)
+        NODE_EXPORTER_MTLS_ENABLED=1
+        result "已选择 mTLS 模式"
+        return
+        ;;
+      *) warn "请输入 1 或 2" ;;
+    esac
+  done
+}
+
+validate_certificate_content() {
+  local content="$1"
+  local content_name="$2"
+  [[ "${content}" == *"-----BEGIN CERTIFICATE-----"* && \
+     "${content}" == *"-----END CERTIFICATE-----"* ]] || die "${content_name}不是有效的 PEM 证书内容"
+}
+
+validate_private_key_content() {
+  [[ "${NODE_EXPORTER_TLS_KEY_CONTENT}" == *"-----BEGIN PRIVATE KEY-----"* && \
+     "${NODE_EXPORTER_TLS_KEY_CONTENT}" == *"-----END PRIVATE KEY-----"* ]] || \
+  [[ "${NODE_EXPORTER_TLS_KEY_CONTENT}" == *"-----BEGIN RSA PRIVATE KEY-----"* && \
+     "${NODE_EXPORTER_TLS_KEY_CONTENT}" == *"-----END RSA PRIVATE KEY-----"* ]] || \
+  [[ "${NODE_EXPORTER_TLS_KEY_CONTENT}" == *"-----BEGIN EC PRIVATE KEY-----"* && \
+     "${NODE_EXPORTER_TLS_KEY_CONTENT}" == *"-----END EC PRIVATE KEY-----"* ]] || \
+    die "服务端私钥不是支持的 PEM 私钥内容"
+}
+
+prepare_mtls_settings() {
+  case "${NODE_EXPORTER_MTLS_ENABLED,,}" in
+    1|true|yes) NODE_EXPORTER_MTLS_ENABLED=1 ;;
+    0|false|no|"") NODE_EXPORTER_MTLS_ENABLED=0 ;;
+    *) die "NODE_EXPORTER_MTLS_ENABLED 只支持 1/0、true/false 或 yes/no" ;;
+  esac
+
+  if [[ "${NODE_EXPORTER_MTLS_ENABLED}" != "1" ]]; then
+    WEB_CONFIG_ARGUMENT=""
+    WEB_SCHEME="http"
+    MTLS_STATUS="关闭"
+    return
+  fi
+
+  prompt_pem_content "服务端证书" NODE_EXPORTER_TLS_CERT_CONTENT
+  prompt_pem_content "服务端私钥（输入内容不会回显）" NODE_EXPORTER_TLS_KEY_CONTENT
+  prompt_pem_content "客户端 CA 证书" NODE_EXPORTER_CLIENT_CA_CONTENT
+  validate_certificate_content "${NODE_EXPORTER_TLS_CERT_CONTENT}" "服务端证书"
+  validate_private_key_content
+  validate_certificate_content "${NODE_EXPORTER_CLIENT_CA_CONTENT}" "客户端 CA 证书"
+
+  WEB_CONFIG_ARGUMENT=" --web.config.file=${WEB_CONFIG_FILE}"
+  WEB_SCHEME="https"
+  MTLS_STATUS="启用（强制验证客户端证书）"
+}
+
+install_mtls_config() {
+  [[ "${NODE_EXPORTER_MTLS_ENABLED}" == "1" ]] || return
+
+  local temp_dir="$1"
+  local cert_tmp="${temp_dir}/mtls-server.crt"
+  local key_tmp="${temp_dir}/mtls-server.key"
+  local ca_tmp="${temp_dir}/mtls-client-ca.crt"
+  local web_config_tmp="${temp_dir}/mtls-web.yml"
+
+  printf '%s' "${NODE_EXPORTER_TLS_CERT_CONTENT}" >"${cert_tmp}"
+  printf '%s' "${NODE_EXPORTER_TLS_KEY_CONTENT}" >"${key_tmp}"
+  printf '%s' "${NODE_EXPORTER_CLIENT_CA_CONTENT}" >"${ca_tmp}"
+  chmod 0600 "${cert_tmp}" "${key_tmp}" "${ca_tmp}"
+
+  install -d -o root -g "${EXPORTER_GROUP}" -m 0750 "${CONFIG_DIR}" "${TLS_DIR}"
+  install -o root -g "${EXPORTER_GROUP}" -m 0640 "${cert_tmp}" "${TLS_DIR}/server.crt"
+  install -o root -g "${EXPORTER_GROUP}" -m 0640 "${key_tmp}" "${TLS_DIR}/server.key"
+  install -o root -g "${EXPORTER_GROUP}" -m 0640 "${ca_tmp}" "${TLS_DIR}/client-ca.crt"
+
+  cat >"${web_config_tmp}" <<EOF
+tls_server_config:
+  cert_file: ${TLS_DIR}/server.crt
+  key_file: ${TLS_DIR}/server.key
+  client_auth_type: RequireAndVerifyClientCert
+  client_ca_file: ${TLS_DIR}/client-ca.crt
+  min_version: TLS12
+EOF
+  install -o root -g "${EXPORTER_GROUP}" -m 0640 "${web_config_tmp}" "${WEB_CONFIG_FILE}"
+  rm -f -- "${web_config_tmp}"
+  result "mTLS Web 配置和证书已安装：${WEB_CONFIG_FILE}"
 }
 
 download() {
@@ -266,7 +420,7 @@ After=network-online.target
 Type=simple
 User=${EXPORTER_USER}
 Group=${EXPORTER_GROUP}
-ExecStart=${BIN_DIR}/node_exporter --web.listen-address=${NODE_EXPORTER_LISTEN_ADDRESS}
+ExecStart=${BIN_DIR}/node_exporter --web.listen-address=${NODE_EXPORTER_LISTEN_ADDRESS}${WEB_CONFIG_ARGUMENT}
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=20s
@@ -308,6 +462,7 @@ uninstall_node_exporter() {
   rm -f -- "${SERVICE_FILE}"
   rm -f -- "/etc/systemd/system/multi-user.target.wants/node_exporter.service"
   rm -f -- "${BIN_DIR}/node_exporter"
+  rm -rf -- "${CONFIG_DIR}"
 
   systemctl daemon-reload
   systemctl reset-failed node_exporter.service >/dev/null 2>&1 || true
@@ -319,7 +474,8 @@ uninstall_node_exporter() {
     groupdel "${EXPORTER_GROUP}"
   fi
 
-  result "node_exporter 服务、程序及专用账号已删除"
+  result "node_exporter 服务、程序、mTLS 配置及专用账号已删除"
+  info "安装时输入的证书和私钥副本已删除"
   print_result_card "node_exporter 卸载完成"
 }
 
@@ -338,6 +494,16 @@ main() {
     install|--install|-i)
       [[ "$#" -le 1 ]] || die "参数过多，请使用 --help 查看用法"
       ;;
+    mtls|--mtls)
+      [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
+      NODE_EXPORTER_MTLS_ENABLED=1
+      NODE_EXPORTER_MTLS_MODE_PRESET=1
+      ;;
+    http|--http)
+      [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
+      NODE_EXPORTER_MTLS_ENABLED=0
+      NODE_EXPORTER_MTLS_MODE_PRESET=1
+      ;;
     *)
       die "未知命令：$1，请使用 --help 查看用法"
       ;;
@@ -346,8 +512,13 @@ main() {
   print_banner "一键安装与更新"
   step "检查运行环境"
   require_root
-  require_commands awk getent groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
+  require_commands awk cat chmod getent groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
   result "运行环境检查通过"
+
+  printf '\n'
+  step "选择安装方式"
+  choose_install_mode
+  prepare_mtls_settings
 
   local requested_version="${NODE_EXPORTER_VERSION}"
   local version
@@ -413,6 +584,7 @@ main() {
 
   create_service_account
   install -m 0755 "${extracted_dir}/node_exporter" "${BIN_DIR}/node_exporter"
+  install_mtls_config "${work_dir}"
   write_service_file
   result "程序和服务配置安装完成"
 

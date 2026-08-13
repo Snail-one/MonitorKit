@@ -8,6 +8,8 @@
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/node_exporter/install.sh | sudo bash
 ```
 
+运行后可选择普通 HTTP 或 mTLS 安装方式。
+
 ## 本地安装
 
 ```bash
@@ -30,6 +32,28 @@ sudo NODE_EXPORTER_VERSION=1.12.1 \
 systemctl status node_exporter
 ```
 
+## mTLS 安装
+
+在线安装并启用 mTLS：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/node_exporter/install.sh | sudo bash -s -- mtls
+```
+
+本地安装并启用 mTLS：
+
+```bash
+sudo ./install.sh mtls
+```
+
+脚本会依次要求粘贴：
+
+1. 服务端证书 PEM 内容
+2. 服务端私钥 PEM 内容
+3. 用于验证客户端证书的 CA PEM 内容
+
+每段内容粘贴完成后，需要单独输入一行 `EOF`。私钥输入不会在终端回显。证书和生成的 Web 配置保存在 `/etc/node_exporter`，服务使用 `RequireAndVerifyClientCert` 强制校验客户端证书，指标地址变为 HTTPS。
+
 ## 卸载
 
 在线卸载：
@@ -44,6 +68,6 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 sudo ./install.sh uninstall
 ```
 
-卸载命令会停止服务，并删除 node_exporter 服务文件、程序文件及专用系统用户组，不会影响 Prometheus 服务端。
+卸载命令会停止服务，并删除 node_exporter 服务文件、程序文件、mTLS 证书副本、Web 配置及专用系统用户组，不会影响 Prometheus 服务端。
 
 脚本会在终端中显示彩色步骤和结果提示。设置 `NO_COLOR=1` 可关闭颜色，设置 `FORCE_COLOR=1` 可强制开启颜色。
