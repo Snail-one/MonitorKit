@@ -18,7 +18,7 @@ Snailbash 是一个常用 Linux 服务与运维工具的一键安装脚本集合
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/prometheus/install.sh | sudo bash
 ```
 
-运行后可选择 HTTP 安装、mTLS 安装、标准卸载或彻底清理。
+运行后可选择 mTLS 安装、HTTP 安装、标准卸载或彻底清理；直接回车默认安装 mTLS。
 
 详细说明：[prometheus/prometheus/README.md](prometheus/prometheus/README.md)
 
@@ -48,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/node_exporter/install.sh | sudo bash
 ```
 
-运行后可选择 HTTP 安装、mTLS 安装、标准卸载或彻底清理。
+运行后可选择 mTLS 安装、HTTP 安装、标准卸载或彻底清理；直接回车默认安装 mTLS。
 
 详细说明：[prometheus/node_exporter/README.md](prometheus/node_exporter/README.md)
 

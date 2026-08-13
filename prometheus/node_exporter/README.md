@@ -8,7 +8,7 @@
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/node_exporter/install.sh | sudo bash
 ```
 
-运行后可选择 HTTP 安装、mTLS 安装、标准卸载或彻底清理。
+运行后可选择 mTLS 安装、HTTP 安装、标准卸载或彻底清理；直接回车默认安装 mTLS。只有明确选择普通 HTTP 或传入 `http` 参数时才关闭 mTLS。
 
 ## 本地安装
 
@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 sudo ./install.sh
 ```
 
-脚本默认通过 GitHub Releases API 获取并安装 node_exporter 最新正式版本。检测到代理环境且 API 访问失败时，会自动绕过代理进行直连重试。默认监听端口为 `9100`，指标地址为 `http://服务器IP:9100/metrics`。
+脚本默认通过 GitHub Releases API 获取并安装 node_exporter 最新正式版本。检测到代理环境且 API 访问失败时，会自动绕过代理进行直连重试。默认安装方式为 mTLS，监听端口为 `9100`，指标地址为 `https://服务器IP:9100/metrics`。
 
 本地安装时可指定固定版本或监听地址：
 
@@ -34,6 +34,8 @@ systemctl status node_exporter
 
 ## mTLS 安装
 
+证书签发类型、每个节点的证书规划和完整部署关系，请先阅读：[node_exporter mTLS 证书说明](MTLS_CERTIFICATES.md)。
+
 在线安装并启用 mTLS：
 
 ```bash
@@ -50,7 +52,7 @@ sudo ./install.sh mtls
 
 1. `/etc/node_exporter/tls/server.crt`：服务端证书
 2. `/etc/node_exporter/tls/server.key`：服务端私钥
-3. `/etc/node_exporter/tls/client-ca.crt`：用于验证客户端证书的 CA
+3. `/etc/node_exporter/tls/client-ca.crt`：信任 Prometheus 客户端证书的根 CA 证书（信任锚）
 
 每一步都会显示文件路径和对应的 `sudo vim`、`sudo nano` 或 `sudo vi` 命令。按回车后脚本会直接打开编辑器，粘贴 PEM 内容并保存退出即可，不需要输入 `EOF`。脚本随后使用 OpenSSL 检查证书和私钥格式，并检查服务端证书与私钥是否匹配；检查失败会要求重新编辑。
 
@@ -69,7 +71,7 @@ sudo apt install vim
 | --- | --- |
 | 服务端证书 | PEM 格式，访问域名或 IP 应包含在证书 SAN 中，可包含完整证书链 |
 | 服务端私钥 | 与服务端证书匹配的未加密 PEM 私钥 |
-| 客户端 CA | 用于签发和验证客户端证书的 CA，可包含 CA 证书链 |
+| Prometheus 客户端根 CA 证书（信任锚） | 用于建立和验证 Prometheus 客户端证书的信任链；不是 Prometheus 客户端证书，也不能填写 CA 私钥；使用中间 CA 时可包含对应 CA 证书链 |
 
 ### 安装后的文件位置
 
@@ -77,7 +79,7 @@ sudo apt install vim
 | --- | --- | --- |
 | 服务端证书 | `/etc/node_exporter/tls/server.crt` | `root:node_exporter 0640` |
 | 服务端私钥 | `/etc/node_exporter/tls/server.key` | `root:node_exporter 0640` |
-| 客户端 CA | `/etc/node_exporter/tls/client-ca.crt` | `root:node_exporter 0640` |
+| Prometheus 客户端根 CA 证书（信任锚） | `/etc/node_exporter/tls/client-ca.crt` | `root:node_exporter 0640` |
 | mTLS Web 配置 | `/etc/node_exporter/web.yml` | `root:node_exporter 0640` |
 | systemd 服务 | `/etc/systemd/system/node_exporter.service` | `root:root 0644` |
 | node_exporter 程序 | `/usr/local/bin/node_exporter` | `root:root 0755` |

@@ -13,7 +13,7 @@ NODE_EXPORTER_LISTEN_ADDRESS="${NODE_EXPORTER_LISTEN_ADDRESS:-0.0.0.0:9100}"
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://github.com/prometheus/node_exporter/releases/download}"
 NODE_EXPORTER_MTLS_MODE_PRESET=0
 [[ -n "${NODE_EXPORTER_MTLS_ENABLED+x}" ]] && NODE_EXPORTER_MTLS_MODE_PRESET=1
-NODE_EXPORTER_MTLS_ENABLED="${NODE_EXPORTER_MTLS_ENABLED:-0}"
+NODE_EXPORTER_MTLS_ENABLED="${NODE_EXPORTER_MTLS_ENABLED:-1}"
 
 readonly EXPORTER_USER="node_exporter"
 readonly EXPORTER_GROUP="node_exporter"
@@ -129,7 +129,7 @@ usage() {
 node_exporter 探针一键安装、更新与卸载脚本。
 
 用法：
-  sudo ./install.sh             # 交互选择 HTTP 或 mTLS
+  sudo ./install.sh             # 交互选择，默认安装 mTLS
   sudo ./install.sh http        # 直接安装 HTTP 模式
   sudo ./install.sh mtls
   sudo ./install.sh uninstall   # 交互选择标准卸载或彻底清理
@@ -233,11 +233,20 @@ edit_pem_file() {
   local content_name="$1"
   local file_path="$2"
   local content_type="$3"
+  local content_description="$4"
+  local content_warning="$5"
   local answer=""
 
   while true; do
     printf '\n'
     step "配置${content_name}"
+    info "填写内容：${content_description}"
+    warn "不要填写：${content_warning}"
+    if [[ "${content_type}" == "certificate" ]]; then
+      info "PEM 开头：-----BEGIN CERTIFICATE-----"
+    else
+      info "PEM 开头：-----BEGIN PRIVATE KEY-----（也支持 RSA/EC 私钥）"
+    fi
     info "文件路径：${file_path}"
     info "手动编辑命令：sudo ${TEXT_EDITOR##*/} ${file_path}"
     printf '%s按回车打开 %s，输入 q 取消：%s' "${BLUE}" "${TEXT_EDITOR##*/}" "${RESET}" >&2
@@ -275,23 +284,23 @@ choose_install_mode() {
   [[ "${NODE_EXPORTER_MTLS_MODE_PRESET}" == "0" ]] || return 0
   set_interactive_device
 
-  printf '%s  1.%s 安装/更新：普通 HTTP\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  2.%s 安装/更新：mTLS（HTTPS，强制验证客户端证书）\n' "${ORANGE}" "${RESET}" >&2
+  printf '%s  1.%s 安装/更新：mTLS（HTTPS，强制验证客户端证书，默认）\n' "${ORANGE}" "${RESET}" >&2
+  printf '%s  2.%s 安装/更新：普通 HTTP\n' "${GREEN}" "${RESET}" >&2
   printf '%s  3.%s 标准卸载（保留配置、证书和账号）\n' "${YELLOW}" "${RESET}" >&2
   printf '%s  4.%s 彻底清理（删除配置、证书和账号）\n' "${RED}" "${RESET}" >&2
   while true; do
-    printf '%s请选择操作 [1-4]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
+    printf '%s请选择操作 [1-4]（默认 1：mTLS）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
     IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取安装方式失败"
     case "${choice}" in
       ""|1)
-        NODE_EXPORTER_MTLS_ENABLED=0
-        result "已选择普通 HTTP 模式"
+        NODE_EXPORTER_MTLS_ENABLED=1
+        result "已选择 mTLS 模式"
         return
         ;;
       2)
-        NODE_EXPORTER_MTLS_ENABLED=1
-        result "已选择 mTLS 模式"
+        NODE_EXPORTER_MTLS_ENABLED=0
+        result "已选择普通 HTTP 模式"
         return
         ;;
       3)
@@ -361,15 +370,21 @@ prepare_mtls_settings() {
   chmod 0640 "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key" "${TLS_DIR}/client-ca.crt"
 
   while true; do
-    edit_pem_file "服务端证书" "${TLS_DIR}/server.crt" certificate
-    edit_pem_file "服务端私钥" "${TLS_DIR}/server.key" private_key
+    edit_pem_file "node_exporter 服务端证书" "${TLS_DIR}/server.crt" certificate \
+      "node_exporter 提供 HTTPS 指标服务使用的服务端证书，证书 SAN 应包含 Prometheus 访问时使用的域名或 IP" \
+      "Prometheus 客户端证书、私钥或 CA 私钥"
+    edit_pem_file "node_exporter 服务端私钥" "${TLS_DIR}/server.key" private_key \
+      "与上一步 node_exporter 服务端证书匹配的未加密私钥" \
+      "证书、Prometheus 客户端私钥或加密私钥"
     if certificate_matches_private_key "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key"; then
       result "服务端证书和私钥匹配"
       break
     fi
     warn "服务端证书和私钥不匹配，请重新编辑"
   done
-  edit_pem_file "客户端 CA 证书" "${TLS_DIR}/client-ca.crt" certificate
+  edit_pem_file "Prometheus 客户端根 CA 证书（信任锚）" "${TLS_DIR}/client-ca.crt" certificate \
+    "信任 Prometheus 客户端证书的根 CA 公共证书；如使用中间 CA，可同时包含对应 CA 证书链" \
+    "Prometheus 客户端证书、node_exporter 服务端证书或 CA 私钥"
 
   WEB_CONFIG_ARGUMENT=" --web.config.file=${WEB_CONFIG_FILE}"
   WEB_SCHEME="https"

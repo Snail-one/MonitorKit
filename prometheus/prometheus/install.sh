@@ -13,7 +13,7 @@ PROMETHEUS_LISTEN_ADDRESS="${PROMETHEUS_LISTEN_ADDRESS:-0.0.0.0:9090}"
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://github.com/prometheus/prometheus/releases/download}"
 PROMETHEUS_MTLS_MODE_PRESET=0
 [[ -n "${PROMETHEUS_MTLS_ENABLED+x}" ]] && PROMETHEUS_MTLS_MODE_PRESET=1
-PROMETHEUS_MTLS_ENABLED="${PROMETHEUS_MTLS_ENABLED:-0}"
+PROMETHEUS_MTLS_ENABLED="${PROMETHEUS_MTLS_ENABLED:-1}"
 
 readonly PROMETHEUS_USER="prometheus"
 readonly PROMETHEUS_GROUP="prometheus"
@@ -130,7 +130,7 @@ usage() {
 Prometheus 一键安装、更新与卸载脚本。
 
 用法：
-  sudo ./install.sh             # 交互选择 HTTP 或 mTLS
+  sudo ./install.sh             # 交互选择，默认安装 mTLS
   sudo ./install.sh http        # 直接安装 HTTP 模式
   sudo ./install.sh mtls
   sudo ./install.sh uninstall   # 交互选择标准卸载或彻底清理
@@ -234,11 +234,20 @@ edit_pem_file() {
   local content_name="$1"
   local file_path="$2"
   local content_type="$3"
+  local content_description="$4"
+  local content_warning="$5"
   local answer=""
 
   while true; do
     printf '\n'
     step "配置${content_name}"
+    info "填写内容：${content_description}"
+    warn "不要填写：${content_warning}"
+    if [[ "${content_type}" == "certificate" ]]; then
+      info "PEM 开头：-----BEGIN CERTIFICATE-----"
+    else
+      info "PEM 开头：-----BEGIN PRIVATE KEY-----（也支持 RSA/EC 私钥）"
+    fi
     info "文件路径：${file_path}"
     info "手动编辑命令：sudo ${TEXT_EDITOR##*/} ${file_path}"
     printf '%s按回车打开 %s，输入 q 取消：%s' "${BLUE}" "${TEXT_EDITOR##*/}" "${RESET}" >&2
@@ -276,23 +285,23 @@ choose_install_mode() {
   [[ "${PROMETHEUS_MTLS_MODE_PRESET}" == "0" ]] || return 0
   set_interactive_device
 
-  printf '%s  1.%s 安装/更新：普通 HTTP\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  2.%s 安装/更新：mTLS（HTTPS，强制验证客户端证书）\n' "${ORANGE}" "${RESET}" >&2
+  printf '%s  1.%s 安装/更新：mTLS（HTTPS，强制验证客户端证书，默认）\n' "${ORANGE}" "${RESET}" >&2
+  printf '%s  2.%s 安装/更新：普通 HTTP\n' "${GREEN}" "${RESET}" >&2
   printf '%s  3.%s 标准卸载（保留配置、证书、数据和账号）\n' "${YELLOW}" "${RESET}" >&2
   printf '%s  4.%s 彻底清理（删除配置、证书、数据和账号）\n' "${RED}" "${RESET}" >&2
   while true; do
-    printf '%s请选择操作 [1-4]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
+    printf '%s请选择操作 [1-4]（默认 1：mTLS）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
     IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取安装方式失败"
     case "${choice}" in
       ""|1)
-        PROMETHEUS_MTLS_ENABLED=0
-        result "已选择普通 HTTP 模式"
+        PROMETHEUS_MTLS_ENABLED=1
+        result "已选择 mTLS 模式"
         return
         ;;
       2)
-        PROMETHEUS_MTLS_ENABLED=1
-        result "已选择 mTLS 模式"
+        PROMETHEUS_MTLS_ENABLED=0
+        result "已选择普通 HTTP 模式"
         return
         ;;
       3)
@@ -363,15 +372,21 @@ prepare_mtls_settings() {
   chmod 0640 "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key" "${TLS_DIR}/client-ca.crt"
 
   while true; do
-    edit_pem_file "服务端证书" "${TLS_DIR}/server.crt" certificate
-    edit_pem_file "服务端私钥" "${TLS_DIR}/server.key" private_key
+    edit_pem_file "Prometheus 服务端证书" "${TLS_DIR}/server.crt" certificate \
+      "Prometheus 提供 HTTPS 服务使用的服务端证书，证书 SAN 应包含客户端访问时使用的域名或 IP" \
+      "客户端证书、私钥或 CA 私钥"
+    edit_pem_file "Prometheus 服务端私钥" "${TLS_DIR}/server.key" private_key \
+      "与上一步 Prometheus 服务端证书匹配的未加密私钥" \
+      "证书、客户端私钥或加密私钥"
     if certificate_matches_private_key "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key"; then
       result "服务端证书和私钥匹配"
       break
     fi
     warn "服务端证书和私钥不匹配，请重新编辑"
   done
-  edit_pem_file "客户端 CA 证书" "${TLS_DIR}/client-ca.crt" certificate
+  edit_pem_file "客户端根 CA 证书（信任锚）" "${TLS_DIR}/client-ca.crt" certificate \
+    "信任访问 Prometheus 的客户端证书的根 CA 公共证书；如使用中间 CA，可同时包含对应 CA 证书链" \
+    "客户端证书、Prometheus 服务端证书或 CA 私钥"
 
   WEB_CONFIG_ARGUMENT=" --web.config.file=${WEB_CONFIG_FILE}"
   WEB_SCHEME="https"
