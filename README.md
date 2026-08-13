@@ -20,6 +20,12 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 
 详细说明：[prometheus/prometheus/README.md](prometheus/prometheus/README.md)
 
+卸载命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/prometheus/install.sh | sudo bash -s -- uninstall
+```
+
 ### node_exporter
 
 一键安装 Prometheus 主机监控探针：

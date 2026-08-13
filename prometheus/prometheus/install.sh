@@ -29,7 +29,18 @@ die() {
 }
 
 usage() {
-  sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+  cat <<'EOF'
+Install, upgrade, or uninstall Prometheus.
+
+Usage:
+  sudo ./install.sh [install]
+  sudo ./install.sh uninstall
+
+Optional environment variables for installation:
+  PROMETHEUS_VERSION=3.13.1
+  PROMETHEUS_LISTEN_ADDRESS=0.0.0.0:9090
+  DOWNLOAD_BASE_URL=https://github.com/prometheus/prometheus/releases/download
+EOF
 }
 
 require_root() {
@@ -93,11 +104,24 @@ create_service_account() {
 }
 
 main() {
-  if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    usage
-    exit 0
-  fi
-  [[ "$#" -eq 0 ]] || die "unknown argument: $1 (try --help)"
+  case "${1:-install}" in
+    -h|--help|help)
+      [[ "$#" -le 1 ]] || die "too many arguments (try --help)"
+      usage
+      exit 0
+      ;;
+    uninstall|--uninstall|-u)
+      [[ "$#" -eq 1 ]] || die "too many arguments (try --help)"
+      uninstall_prometheus
+      exit 0
+      ;;
+    install|--install|-i)
+      [[ "$#" -le 1 ]] || die "too many arguments (try --help)"
+      ;;
+    *)
+      die "unknown command: $1 (try --help)"
+      ;;
+  esac
 
   require_root
   require_commands uname tar sha256sum install getent id groupadd useradd systemctl
@@ -222,6 +246,25 @@ WantedBy=multi-user.target
 EOF
   install -m 0644 "${service_tmp}" "${SERVICE_FILE}"
   rm -f -- "${service_tmp}"
+}
+
+uninstall_prometheus() {
+  require_root
+  require_commands systemctl
+
+  log "stopping and disabling Prometheus"
+  systemctl disable --now prometheus.service >/dev/null 2>&1 || true
+
+  rm -f -- "${SERVICE_FILE}"
+  rm -f -- "/etc/systemd/system/multi-user.target.wants/prometheus.service"
+  rm -f -- "${BIN_DIR}/prometheus"
+  rm -f -- "${BIN_DIR}/promtool"
+
+  systemctl daemon-reload
+  systemctl reset-failed prometheus.service >/dev/null 2>&1 || true
+
+  log "Prometheus has been uninstalled"
+  log "configuration and data were preserved in ${CONFIG_DIR} and ${DATA_DIR}"
 }
 
 main "$@"

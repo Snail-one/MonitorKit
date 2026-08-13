@@ -29,3 +29,19 @@ sudo PROMETHEUS_VERSION=3.13.1 \
 ```bash
 systemctl status prometheus
 ```
+
+## 卸载
+
+在线卸载：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/prometheus/install.sh | sudo bash -s -- uninstall
+```
+
+本地卸载：
+
+```bash
+sudo ./install.sh uninstall
+```
+
+卸载命令会停止服务，并删除 Prometheus 服务文件、`prometheus` 和 `promtool` 程序。配置目录 `/etc/prometheus`、数据目录 `/var/lib/prometheus` 及服务账号会被保留，方便以后恢复或重新安装。
