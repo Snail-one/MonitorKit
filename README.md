@@ -20,6 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 
 运行后可选择 mTLS 安装、HTTP 安装、标准卸载或彻底清理；直接回车默认安装 mTLS。
 检测到已经安装时，可选择检查更新或仅重新配置；重新配置不会重复下载安装包。
+Prometheus 已安装时还可以选择“添加 node_exporter 探针”，向导会校验配置后安全重载服务。所有交互支持输入 `q` 返回主菜单。
 
 详细说明：[prometheus/prometheus/README.md](prometheus/prometheus/README.md)
 
@@ -51,6 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 
 运行后可选择 mTLS 安装、HTTP 安装、标准卸载或彻底清理；直接回车默认安装 mTLS。
 检测到已经安装时，可选择检查更新或仅重新配置；重新配置不会重复下载安装包。
+所有交互支持输入 `q` 返回主菜单，输入错误时会提示重新输入。
 
 详细说明：[prometheus/node_exporter/README.md](prometheus/node_exporter/README.md)
 

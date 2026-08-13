@@ -39,6 +39,7 @@ TEXT_EDITOR=""
 PURGE_MODE=0
 SELECTED_ACTION="install"
 MAINTENANCE_ACTION="install"
+RETURN_TO_MAIN=0
 WORK_DIR=""
 
 init_colors() {
@@ -157,6 +158,7 @@ mTLS 环境变量：
   NODE_EXPORTER_MTLS_ENABLED=1
 
 mTLS 模式会使用 vim、nano 或 vi 编辑并校验证书文件。
+所有交互输入错误时会提示重新输入；输入 q 可返回主菜单。
 EOF
 }
 
@@ -260,12 +262,16 @@ edit_pem_file() {
     fi
     info "文件路径：${file_path}"
     info "手动编辑命令：sudo ${TEXT_EDITOR##*/} ${file_path}"
-    printf '%s按回车打开 %s，输入 q 取消：%s' "${BLUE}" "${TEXT_EDITOR##*/}" "${RESET}" >&2
+    printf '%s按回车打开 %s，输入 q 返回主菜单：%s' "${BLUE}" "${TEXT_EDITOR##*/}" "${RESET}" >&2
     IFS= read -e -r answer <"${INTERACTIVE_DEVICE}" || die "读取用户输入失败"
     case "${answer}" in
       "") ;;
-      q|Q) die "用户取消 mTLS 证书配置" ;;
-      *) warn "请直接按回车打开编辑器，或输入 q 取消"; continue ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请直接按回车打开编辑器，或输入 q 返回主菜单"; continue ;;
     esac
 
     if ! open_text_editor "${file_path}"; then
@@ -299,6 +305,7 @@ choose_install_mode() {
   printf '%s  2.%s 安装/更新：普通 HTTP\n' "${GREEN}" "${RESET}" >&2
   printf '%s  3.%s 标准卸载（保留配置、证书和账号）\n' "${YELLOW}" "${RESET}" >&2
   printf '%s  4.%s 彻底清理（删除配置、证书和账号）\n' "${RED}" "${RESET}" >&2
+  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
   while true; do
     printf '%s请选择操作 [1-4]（默认 1：mTLS）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
@@ -324,7 +331,12 @@ choose_install_mode() {
         warn "已选择彻底清理，mTLS 配置和证书将被永久删除"
         return
         ;;
-      *) warn "请输入 1、2、3 或 4" ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请输入 1、2、3、4 或 q" ;;
     esac
   done
 }
@@ -333,6 +345,7 @@ choose_uninstall_mode() {
   set_interactive_device
   printf '%s  1.%s 标准卸载（保留配置、证书和账号）\n' "${GREEN}" "${RESET}" >&2
   printf '%s  2.%s 彻底清理（删除全部配置、证书和账号）\n' "${RED}" "${RESET}" >&2
+  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
   while true; do
     printf '%s请选择卸载方式 [1-2]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
@@ -348,7 +361,12 @@ choose_uninstall_mode() {
         warn "已选择彻底清理，mTLS 配置和证书将被永久删除"
         return
         ;;
-      *) warn "请输入 1 或 2" ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请输入 1、2 或 q" ;;
     esac
   done
 }
@@ -359,6 +377,7 @@ choose_maintenance_action() {
   printf '%s  2.%s 仅重新配置（不访问 API、不下载安装包，默认）\n' "${GREEN}" "${RESET}" >&2
   printf '%s  3.%s 标准卸载（保留配置、证书和账号）\n' "${YELLOW}" "${RESET}" >&2
   printf '%s  4.%s 彻底清理（删除配置、证书和账号）\n' "${RED}" "${RESET}" >&2
+  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
   while true; do
     printf '%s请选择维护操作 [1-4]（默认 2）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
@@ -384,7 +403,12 @@ choose_maintenance_action() {
         warn "已选择彻底清理，mTLS 配置和证书将被永久删除"
         return
         ;;
-      *) warn "请输入 1、2、3 或 4" ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请输入 1、2、3、4 或 q" ;;
     esac
   done
 }
@@ -394,6 +418,7 @@ choose_reconfigure_mode() {
   set_interactive_device
   printf '%s  1.%s mTLS（HTTPS，强制验证客户端证书，默认）\n' "${ORANGE}" "${RESET}" >&2
   printf '%s  2.%s 普通 HTTP\n' "${GREEN}" "${RESET}" >&2
+  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
   while true; do
     printf '%s请选择重新配置方式 [1-2]（默认 1：mTLS）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
@@ -409,7 +434,12 @@ choose_reconfigure_mode() {
         result "将重新配置为普通 HTTP 模式"
         return
         ;;
-      *) warn "请输入 1 或 2" ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请输入 1、2 或 q" ;;
     esac
   done
 }
@@ -459,9 +489,11 @@ prepare_mtls_settings() {
     edit_pem_file "node_exporter 服务端证书" "${TLS_DIR}/server.crt" certificate \
       "node_exporter 提供 HTTPS 指标服务使用的服务端证书，证书 SAN 应包含 Prometheus 访问时使用的域名或 IP" \
       "Prometheus 客户端证书、私钥或 CA 私钥"
+    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
     edit_pem_file "node_exporter 服务端私钥" "${TLS_DIR}/server.key" private_key \
       "与上一步 node_exporter 服务端证书匹配的未加密私钥" \
       "证书、Prometheus 客户端私钥或加密私钥"
+    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
     if certificate_matches_private_key "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key"; then
       result "服务端证书和私钥匹配"
       break
@@ -471,6 +503,7 @@ prepare_mtls_settings() {
   edit_pem_file "Prometheus 客户端根 CA 证书（信任锚）" "${TLS_DIR}/client-ca.crt" certificate \
     "信任 Prometheus 客户端证书的根 CA 公共证书；如使用中间 CA，可同时包含对应 CA 证书链" \
     "Prometheus 客户端证书、node_exporter 服务端证书或 CA 私钥"
+  [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
 
   WEB_CONFIG_ARGUMENT=" --web.config.file=${WEB_CONFIG_FILE}"
   WEB_SCHEME="https"
@@ -653,7 +686,10 @@ uninstall_node_exporter() {
       PURGE_MODE=0
       info "将保留 mTLS 配置、证书和系统账号"
       ;;
-    *) choose_uninstall_mode ;;
+    *)
+      choose_uninstall_mode
+      [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+      ;;
   esac
 
   printf '\n'
@@ -700,7 +736,10 @@ main() {
     uninstall|--uninstall|-u)
       [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
       uninstall_node_exporter ask
-      exit 0
+      if [[ "${RETURN_TO_MAIN}" == "0" ]]; then
+        exit 0
+      fi
+      RETURN_TO_MAIN=0
       ;;
     purge|--purge)
       [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
@@ -742,51 +781,69 @@ main() {
   local extracted_dir=""
   local download_required=0
 
-  require_commands sed
-  current_version="$(installed_version)"
-  printf '\n'
-  step "检查安装状态"
-  if [[ -z "${current_version}" ]]; then
-    current_version="未安装"
+  while true; do
+    RETURN_TO_MAIN=0
+    SELECTED_ACTION="install"
     MAINTENANCE_ACTION="install"
-    result "未检测到 node_exporter，将安装最新版本"
+    current_version=""
+    download_required=0
+
+    require_commands sed
+    current_version="$(installed_version)"
     printf '\n'
-    step "选择安装方式"
-    choose_install_mode
-  else
-    result "检测到 node_exporter v${current_version}"
-    printf '\n'
-    step "选择维护操作"
-    choose_maintenance_action
-    if [[ "${MAINTENANCE_ACTION}" == "reconfigure" ]]; then
+    step "检查安装状态"
+    if [[ -z "${current_version}" ]]; then
+      current_version="未安装"
+      result "未检测到 node_exporter，将安装最新版本"
       printf '\n'
-      step "选择重新配置方式"
-      choose_reconfigure_mode
+      step "选择安装方式"
+      choose_install_mode
+    else
+      result "检测到 node_exporter v${current_version}"
+      printf '\n'
+      step "选择维护操作"
+      choose_maintenance_action
+      if [[ "${RETURN_TO_MAIN}" == "0" && "${MAINTENANCE_ACTION}" == "reconfigure" ]]; then
+        printf '\n'
+        step "选择重新配置方式"
+        choose_reconfigure_mode
+      fi
     fi
-  fi
 
-  case "${SELECTED_ACTION}" in
-    uninstall)
-      uninstall_node_exporter keep
-      exit 0
-      ;;
-    purge)
-      uninstall_node_exporter purge
-      exit 0
-      ;;
-  esac
+    if [[ "${RETURN_TO_MAIN}" == "1" ]]; then
+      NODE_EXPORTER_MTLS_MODE_PRESET=0
+      continue
+    fi
 
-  printf '\n'
-  step "检查安装依赖"
-  require_commands awk cat chmod getent grep groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
-  result "安装依赖检查通过"
+    case "${SELECTED_ACTION}" in
+      uninstall)
+        uninstall_node_exporter keep
+        exit 0
+        ;;
+      purge)
+        uninstall_node_exporter purge
+        exit 0
+        ;;
+    esac
 
-  validate_listen_address "${NODE_EXPORTER_LISTEN_ADDRESS}"
-  if [[ "${MAINTENANCE_ACTION}" == "update" ]]; then
-    load_existing_web_mode
-  else
-    prepare_mtls_settings
-  fi
+    printf '\n'
+    step "检查安装依赖"
+    require_commands awk cat chmod getent grep groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
+    result "安装依赖检查通过"
+
+    validate_listen_address "${NODE_EXPORTER_LISTEN_ADDRESS}"
+    if [[ "${MAINTENANCE_ACTION}" == "update" ]]; then
+      load_existing_web_mode
+    else
+      prepare_mtls_settings
+    fi
+    if [[ "${RETURN_TO_MAIN}" == "1" ]]; then
+      NODE_EXPORTER_MTLS_MODE_PRESET=0
+      continue
+    fi
+    break
+  done
+
   arch="$(detect_arch)"
   work_dir="$(mktemp -d -t node-exporter-install.XXXXXXXX)"
   WORK_DIR="${work_dir}"

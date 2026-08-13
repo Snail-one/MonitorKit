@@ -25,6 +25,8 @@ sudo ./install.sh
 3. 检查更新：保留现有证书、Prometheus 配置和 systemd 服务参数；已经是目标版本时不会重复下载安装包。
 4. 仅重新配置：不访问 GitHub Releases API、不下载安装包，只重新配置 HTTP/mTLS、证书和 systemd 服务，默认选择此项。
 
+所有交互菜单输入错误时会提示并要求重新输入，不会直接退出。输入 `q` 可以返回主菜单；在证书编辑器打开前输入 `q` 也会取消本次配置并返回主菜单。
+
 本地安装时可指定固定版本或监听地址：
 
 ```bash
@@ -120,6 +122,33 @@ scrape_configs:
 ```
 
 `prometheus-client.crt` 必须由 node_exporter 配置的客户端 CA 签发或信任，`server_name` 必须与 node_exporter 服务端证书的 SAN 匹配。
+
+## 交互添加 node_exporter 探针
+
+本机已安装 Prometheus 时重新运行脚本，选择：
+
+```text
+3. 添加 node_exporter 探针
+```
+
+向导会依次收集：
+
+1. 探针地址，例如 `node01.example.com:9100`。
+2. Prometheus 任务名称。
+3. 连接方式，默认使用 mTLS/HTTPS，也可以选择普通 HTTP。
+4. mTLS 模式下使用的 node_exporter 服务端根 CA、Prometheus 客户端证书和客户端私钥路径。
+
+默认客户端文件路径：
+
+```text
+/etc/prometheus/client/node-server-ca.crt
+/etc/prometheus/client/prometheus-client.crt
+/etc/prometheus/client/prometheus-client.key
+```
+
+向导不会直接修改正在使用的配置。它会先生成候选配置并执行 `promtool check config`；校验通过后才写入 `/etc/prometheus/prometheus.yml` 并重载服务。配置校验失败时原配置不变，服务重载失败时会自动恢复原配置。
+
+探针地址使用的域名或 IP 必须包含在 node_exporter 服务端证书 SAN 中。配置中已经存在相同地址时，向导不会重复添加。
 
 ## 卸载
 

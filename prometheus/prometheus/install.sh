@@ -40,6 +40,7 @@ TEXT_EDITOR=""
 PURGE_MODE=0
 SELECTED_ACTION="install"
 MAINTENANCE_ACTION="install"
+RETURN_TO_MAIN=0
 WORK_DIR=""
 
 init_colors() {
@@ -158,6 +159,7 @@ mTLS 环境变量：
   PROMETHEUS_MTLS_ENABLED=1
 
 mTLS 模式会使用 vim、nano 或 vi 编辑并校验证书文件。
+所有交互输入错误时会提示重新输入；输入 q 可返回主菜单。
 EOF
 }
 
@@ -261,12 +263,16 @@ edit_pem_file() {
     fi
     info "文件路径：${file_path}"
     info "手动编辑命令：sudo ${TEXT_EDITOR##*/} ${file_path}"
-    printf '%s按回车打开 %s，输入 q 取消：%s' "${BLUE}" "${TEXT_EDITOR##*/}" "${RESET}" >&2
+    printf '%s按回车打开 %s，输入 q 返回主菜单：%s' "${BLUE}" "${TEXT_EDITOR##*/}" "${RESET}" >&2
     IFS= read -e -r answer <"${INTERACTIVE_DEVICE}" || die "读取用户输入失败"
     case "${answer}" in
       "") ;;
-      q|Q) die "用户取消 mTLS 证书配置" ;;
-      *) warn "请直接按回车打开编辑器，或输入 q 取消"; continue ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请直接按回车打开编辑器，或输入 q 返回主菜单"; continue ;;
     esac
 
     if ! open_text_editor "${file_path}"; then
@@ -300,6 +306,7 @@ choose_install_mode() {
   printf '%s  2.%s 安装/更新：普通 HTTP\n' "${GREEN}" "${RESET}" >&2
   printf '%s  3.%s 标准卸载（保留配置、证书、数据和账号）\n' "${YELLOW}" "${RESET}" >&2
   printf '%s  4.%s 彻底清理（删除配置、证书、数据和账号）\n' "${RED}" "${RESET}" >&2
+  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
   while true; do
     printf '%s请选择操作 [1-4]（默认 1：mTLS）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
@@ -325,7 +332,12 @@ choose_install_mode() {
         warn "已选择彻底清理，历史监控数据将被永久删除"
         return
         ;;
-      *) warn "请输入 1、2、3 或 4" ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请输入 1、2、3、4 或 q" ;;
     esac
   done
 }
@@ -334,6 +346,7 @@ choose_uninstall_mode() {
   set_interactive_device
   printf '%s  1.%s 标准卸载（保留配置、证书、数据和账号）\n' "${GREEN}" "${RESET}" >&2
   printf '%s  2.%s 彻底清理（删除全部配置、证书、数据和账号）\n' "${RED}" "${RESET}" >&2
+  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
   while true; do
     printf '%s请选择卸载方式 [1-2]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
@@ -349,7 +362,12 @@ choose_uninstall_mode() {
         warn "已选择彻底清理，历史监控数据将被永久删除"
         return
         ;;
-      *) warn "请输入 1 或 2" ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请输入 1、2 或 q" ;;
     esac
   done
 }
@@ -358,10 +376,12 @@ choose_maintenance_action() {
   set_interactive_device
   printf '%s  1.%s 检查最新版本并更新\n' "${ORANGE}" "${RESET}" >&2
   printf '%s  2.%s 仅重新配置（不访问 API、不下载安装包，默认）\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  3.%s 标准卸载（保留配置、证书、数据和账号）\n' "${YELLOW}" "${RESET}" >&2
-  printf '%s  4.%s 彻底清理（删除配置、证书、数据和账号）\n' "${RED}" "${RESET}" >&2
+  printf '%s  3.%s 添加 node_exporter 探针\n' "${BLUE}" "${RESET}" >&2
+  printf '%s  4.%s 标准卸载（保留配置、证书、数据和账号）\n' "${YELLOW}" "${RESET}" >&2
+  printf '%s  5.%s 彻底清理（删除配置、证书、数据和账号）\n' "${RED}" "${RESET}" >&2
+  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
   while true; do
-    printf '%s请选择维护操作 [1-4]（默认 2）：%s' "${BLUE}" "${RESET}" >&2
+    printf '%s请选择维护操作 [1-5]（默认 2）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
     IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取维护操作失败"
     case "${choice}" in
@@ -376,16 +396,26 @@ choose_maintenance_action() {
         return
         ;;
       3)
+        SELECTED_ACTION="add_probe"
+        result "已选择添加 node_exporter 探针"
+        return
+        ;;
+      4)
         SELECTED_ACTION="uninstall"
         result "已选择标准卸载"
         return
         ;;
-      4)
+      5)
         SELECTED_ACTION="purge"
         warn "已选择彻底清理，历史监控数据将被永久删除"
         return
         ;;
-      *) warn "请输入 1、2、3 或 4" ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请输入 1、2、3、4、5 或 q" ;;
     esac
   done
 }
@@ -395,6 +425,7 @@ choose_reconfigure_mode() {
   set_interactive_device
   printf '%s  1.%s mTLS（HTTPS，强制验证客户端证书，默认）\n' "${ORANGE}" "${RESET}" >&2
   printf '%s  2.%s 普通 HTTP\n' "${GREEN}" "${RESET}" >&2
+  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
   while true; do
     printf '%s请选择重新配置方式 [1-2]（默认 1：mTLS）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
@@ -410,7 +441,12 @@ choose_reconfigure_mode() {
         result "将重新配置为普通 HTTP 模式"
         return
         ;;
-      *) warn "请输入 1 或 2" ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请输入 1、2 或 q" ;;
     esac
   done
 }
@@ -427,6 +463,232 @@ load_existing_web_mode() {
     MTLS_STATUS="保持现有 HTTP 配置"
     info "更新将保留现有服务模式：普通 HTTP"
   fi
+}
+
+is_valid_target_address() {
+  local value="$1"
+  local port=""
+  if [[ "${value}" =~ ^[A-Za-z0-9._-]+:([0-9]{1,5})$ ]] || \
+     [[ "${value}" =~ ^\[[0-9A-Fa-f:.]+\]:([0-9]{1,5})$ ]]; then
+    port="${BASH_REMATCH[1]}"
+    (( port >= 1 && port <= 65535 ))
+    return
+  fi
+  return 1
+}
+
+prompt_existing_file_path() {
+  local content_name="$1"
+  local default_path="$2"
+  local variable_name="$3"
+  local input=""
+  local selected_path=""
+
+  while true; do
+    printf '%s%s路径（默认 %s，q 返回主菜单）：%s' "${BLUE}" "${content_name}" "${default_path}" "${RESET}" >&2
+    IFS= read -e -r input <"${INTERACTIVE_DEVICE}" || die "读取${content_name}路径失败"
+    case "${input}" in
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+    esac
+    selected_path="${input:-${default_path}}"
+    if [[ ! "${selected_path}" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+      warn "输入无效：请输入不含空格的绝对路径，或输入 q 返回主菜单"
+      continue
+    fi
+    if [[ ! -s "${selected_path}" ]]; then
+      warn "文件不存在或内容为空：${selected_path}"
+      continue
+    fi
+    printf -v "${variable_name}" '%s' "${selected_path}"
+    return 0
+  done
+}
+
+add_node_exporter_target() {
+  local config_file="${CONFIG_DIR}/prometheus.yml"
+  local target=""
+  local target_input=""
+  local job_name=""
+  local default_job_name=""
+  local scrape_scheme="https"
+  local scrape_choice=""
+  local ca_file=""
+  local cert_file=""
+  local key_file=""
+  local temp_dir=""
+  local fragment_file=""
+  local candidate_file=""
+  local backup_file=""
+
+  print_banner "添加 node_exporter 探针"
+  require_commands awk cat cp grep install mktemp sed systemctl
+  set_interactive_device
+  [[ -x "${BIN_DIR}/promtool" ]] || die "缺少 promtool，无法安全修改 Prometheus 配置"
+  [[ -f "${config_file}" ]] || die "Prometheus 配置不存在：${config_file}"
+
+  while true; do
+    printf '%s探针地址（例如 node01.example.com:9100，q 返回主菜单）：%s' "${BLUE}" "${RESET}" >&2
+    IFS= read -e -r target_input <"${INTERACTIVE_DEVICE}" || die "读取探针地址失败"
+    case "${target_input}" in
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+    esac
+    if is_valid_target_address "${target_input}"; then
+      target="${target_input}"
+      break
+    fi
+    warn "输入无效：请使用 域名:端口、IP:端口 或 [IPv6]:端口，也可以输入 q 返回主菜单"
+  done
+
+  default_job_name="node_$(sed 's/[^A-Za-z0-9_]/_/g' <<<"${target%:*}")"
+  while true; do
+    printf '%s任务名称（默认 %s，q 返回主菜单）：%s' "${BLUE}" "${default_job_name}" "${RESET}" >&2
+    IFS= read -e -r job_name <"${INTERACTIVE_DEVICE}" || die "读取任务名称失败"
+    case "${job_name}" in
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+    esac
+    job_name="${job_name:-${default_job_name}}"
+    if [[ "${job_name}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+      break
+    fi
+    warn "输入无效：任务名称只能包含字母、数字、点、下划线和连字符"
+  done
+
+  printf '%s  1.%s mTLS/HTTPS（默认）\n' "${ORANGE}" "${RESET}" >&2
+  printf '%s  2.%s 普通 HTTP\n' "${GREEN}" "${RESET}" >&2
+  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
+  while true; do
+    printf '%s请选择探针连接方式 [1-2]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
+    IFS= read -e -r scrape_choice <"${INTERACTIVE_DEVICE}" || die "读取探针连接方式失败"
+    case "${scrape_choice}" in
+      ""|1) scrape_scheme="https"; break ;;
+      2) scrape_scheme="http"; break ;;
+      q|Q)
+        RETURN_TO_MAIN=1
+        result "正在返回主菜单"
+        return 0
+        ;;
+      *) warn "输入无效：请输入 1、2 或 q" ;;
+    esac
+  done
+
+  if [[ "${scrape_scheme}" == "https" ]]; then
+    printf '\n'
+    info "以下是 Prometheus 作为客户端抓取 node_exporter 使用的证书"
+    prompt_existing_file_path "node_exporter 服务端根 CA" "/etc/prometheus/client/node-server-ca.crt" ca_file
+    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+    prompt_existing_file_path "Prometheus 客户端证书" "/etc/prometheus/client/prometheus-client.crt" cert_file
+    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+    prompt_existing_file_path "Prometheus 客户端私钥" "/etc/prometheus/client/prometheus-client.key" key_file
+    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+  fi
+
+  if grep -Fq -- "${target}" "${config_file}"; then
+    warn "配置中已经存在该探针地址：${target}"
+    RETURN_TO_MAIN=1
+    result "未修改配置，正在返回主菜单"
+    return 0
+  fi
+
+  if grep -Eq '^scrape_configs:' "${config_file}" && \
+     ! grep -Eq '^scrape_configs:[[:space:]]*$' "${config_file}"; then
+    warn "现有 scrape_configs 使用了行内写法，向导无法安全插入探针"
+    info "请先将其改为标准多行 YAML 后重试"
+    RETURN_TO_MAIN=1
+    result "原配置未修改，正在返回主菜单"
+    return 0
+  fi
+
+  temp_dir="$(mktemp -d -t prometheus-add-target.XXXXXXXX)"
+  WORK_DIR="${temp_dir}"
+  fragment_file="${temp_dir}/scrape-job.yml"
+  candidate_file="${temp_dir}/prometheus.yml"
+  backup_file="${temp_dir}/prometheus.yml.backup"
+  cp -a "${config_file}" "${backup_file}"
+
+  if [[ "${scrape_scheme}" == "https" ]]; then
+    cat >"${fragment_file}" <<EOF
+  - job_name: "${job_name}"
+    scheme: https
+    static_configs:
+      - targets: ["${target}"]
+    tls_config:
+      ca_file: ${ca_file}
+      cert_file: ${cert_file}
+      key_file: ${key_file}
+EOF
+  else
+    cat >"${fragment_file}" <<EOF
+  - job_name: "${job_name}"
+    scheme: http
+    static_configs:
+      - targets: ["${target}"]
+EOF
+  fi
+
+  awk -v fragment="${fragment_file}" '
+    function emit_fragment(line) {
+      while ((getline line < fragment) > 0) print line
+      close(fragment)
+    }
+    BEGIN { found = 0; inside = 0; inserted = 0 }
+    /^scrape_configs:[[:space:]]*$/ { found = 1; inside = 1; print; next }
+    inside && /^[^[:space:]#][^:]*:[[:space:]]*/ {
+      emit_fragment()
+      inserted = 1
+      inside = 0
+    }
+    { print }
+    END {
+      if (!found) {
+        print ""
+        print "scrape_configs:"
+        emit_fragment()
+      } else if (inside && !inserted) {
+        emit_fragment()
+      }
+    }
+  ' "${config_file}" >"${candidate_file}"
+
+  printf '\n'
+  step "校验 Prometheus 配置"
+  if ! "${BIN_DIR}/promtool" check config "${candidate_file}"; then
+    warn "新增探针后的配置校验失败，原配置未修改"
+    rm -rf -- "${temp_dir}"
+    WORK_DIR=""
+    RETURN_TO_MAIN=1
+    result "正在返回主菜单"
+    return 0
+  fi
+
+  install -o root -g "${PROMETHEUS_GROUP}" -m 0640 "${candidate_file}" "${config_file}"
+  if ! systemctl reload prometheus.service; then
+    warn "Prometheus 重载失败，正在恢复原配置"
+    install -o root -g "${PROMETHEUS_GROUP}" -m 0640 "${backup_file}" "${config_file}"
+    systemctl reload prometheus.service >/dev/null 2>&1 || true
+    rm -rf -- "${temp_dir}"
+    WORK_DIR=""
+    die "添加探针失败，原配置已恢复"
+  fi
+
+  result "探针已添加：${target}"
+  info "任务名称：${job_name}"
+  info "连接方式：${scrape_scheme}"
+  rm -rf -- "${temp_dir}"
+  WORK_DIR=""
+  RETURN_TO_MAIN=1
+  result "正在返回主菜单"
 }
 
 prepare_mtls_settings() {
@@ -461,9 +723,11 @@ prepare_mtls_settings() {
     edit_pem_file "Prometheus 服务端证书" "${TLS_DIR}/server.crt" certificate \
       "Prometheus 提供 HTTPS 服务使用的服务端证书，证书 SAN 应包含客户端访问时使用的域名或 IP" \
       "客户端证书、私钥或 CA 私钥"
+    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
     edit_pem_file "Prometheus 服务端私钥" "${TLS_DIR}/server.key" private_key \
       "与上一步 Prometheus 服务端证书匹配的未加密私钥" \
       "证书、客户端私钥或加密私钥"
+    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
     if certificate_matches_private_key "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key"; then
       result "服务端证书和私钥匹配"
       break
@@ -473,6 +737,7 @@ prepare_mtls_settings() {
   edit_pem_file "客户端根 CA 证书（信任锚）" "${TLS_DIR}/client-ca.crt" certificate \
     "信任访问 Prometheus 的客户端证书的根 CA 公共证书；如使用中间 CA，可同时包含对应 CA 证书链" \
     "客户端证书、Prometheus 服务端证书或 CA 私钥"
+  [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
 
   WEB_CONFIG_ARGUMENT=" --web.config.file=${WEB_CONFIG_FILE}"
   WEB_SCHEME="https"
@@ -607,7 +872,10 @@ main() {
     uninstall|--uninstall|-u)
       [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
       uninstall_prometheus ask
-      exit 0
+      if [[ "${RETURN_TO_MAIN}" == "0" ]]; then
+        exit 0
+      fi
+      RETURN_TO_MAIN=0
       ;;
     purge|--purge)
       [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
@@ -649,51 +917,74 @@ main() {
   local extracted_dir=""
   local download_required=0
 
-  require_commands sed
-  current_version="$(installed_version)"
-  printf '\n'
-  step "检查安装状态"
-  if [[ -z "${current_version}" ]]; then
-    current_version="未安装"
+  while true; do
+    RETURN_TO_MAIN=0
+    SELECTED_ACTION="install"
     MAINTENANCE_ACTION="install"
-    result "未检测到 Prometheus，将安装最新版本"
+    current_version=""
+    download_required=0
+
+    require_commands sed
+    current_version="$(installed_version)"
     printf '\n'
-    step "选择安装方式"
-    choose_install_mode
-  else
-    result "检测到 Prometheus v${current_version}"
-    printf '\n'
-    step "选择维护操作"
-    choose_maintenance_action
-    if [[ "${MAINTENANCE_ACTION}" == "reconfigure" ]]; then
+    step "检查安装状态"
+    if [[ -z "${current_version}" ]]; then
+      current_version="未安装"
+      result "未检测到 Prometheus，将安装最新版本"
       printf '\n'
-      step "选择重新配置方式"
-      choose_reconfigure_mode
+      step "选择安装方式"
+      choose_install_mode
+    else
+      result "检测到 Prometheus v${current_version}"
+      printf '\n'
+      step "选择维护操作"
+      choose_maintenance_action
+      if [[ "${RETURN_TO_MAIN}" == "0" && "${MAINTENANCE_ACTION}" == "reconfigure" ]]; then
+        printf '\n'
+        step "选择重新配置方式"
+        choose_reconfigure_mode
+      fi
     fi
-  fi
 
-  case "${SELECTED_ACTION}" in
-    uninstall)
-      uninstall_prometheus keep
-      exit 0
-      ;;
-    purge)
-      uninstall_prometheus purge
-      exit 0
-      ;;
-  esac
+    if [[ "${RETURN_TO_MAIN}" == "1" ]]; then
+      PROMETHEUS_MTLS_MODE_PRESET=0
+      continue
+    fi
 
-  printf '\n'
-  step "检查安装依赖"
-  require_commands awk cat chmod chown cp getent grep groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
-  result "安装依赖检查通过"
+    case "${SELECTED_ACTION}" in
+      add_probe)
+        add_node_exporter_target
+        PROMETHEUS_MTLS_MODE_PRESET=0
+        continue
+        ;;
+      uninstall)
+        uninstall_prometheus keep
+        exit 0
+        ;;
+      purge)
+        uninstall_prometheus purge
+        exit 0
+        ;;
+    esac
 
-  validate_listen_address "${PROMETHEUS_LISTEN_ADDRESS}"
-  if [[ "${MAINTENANCE_ACTION}" == "update" ]]; then
-    load_existing_web_mode
-  else
-    prepare_mtls_settings
-  fi
+    printf '\n'
+    step "检查安装依赖"
+    require_commands awk cat chmod chown cp getent grep groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
+    result "安装依赖检查通过"
+
+    validate_listen_address "${PROMETHEUS_LISTEN_ADDRESS}"
+    if [[ "${MAINTENANCE_ACTION}" == "update" ]]; then
+      load_existing_web_mode
+    else
+      prepare_mtls_settings
+    fi
+    if [[ "${RETURN_TO_MAIN}" == "1" ]]; then
+      PROMETHEUS_MTLS_MODE_PRESET=0
+      continue
+    fi
+    break
+  done
+
   arch="$(detect_arch)"
   work_dir="$(mktemp -d -t prometheus-install.XXXXXXXX)"
   WORK_DIR="${work_dir}"
@@ -906,7 +1197,10 @@ uninstall_prometheus() {
       PURGE_MODE=0
       info "将保留配置、mTLS 证书、监控数据和系统账号"
       ;;
-    *) choose_uninstall_mode ;;
+    *)
+      choose_uninstall_mode
+      [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+      ;;
   esac
 
   printf '\n'
