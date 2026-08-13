@@ -207,16 +207,14 @@ prompt_pem_content() {
   local line=""
 
   set_interactive_device
-  info "请粘贴${content_name}的 PEM 内容，完成后单独输入一行 EOF"
+  info "请粘贴${content_name}的 PEM 内容（输入内容会正常显示），完成后单独输入一行 EOF"
   while true; do
-    if ! IFS= read -r -s line <"${INTERACTIVE_DEVICE}"; then
-      printf '\n' >&2
+    if ! IFS= read -r line <"${INTERACTIVE_DEVICE}"; then
       die "读取${content_name}失败"
     fi
     [[ "${line}" == "EOF" ]] && break
     content+="${line}"$'\n'
   done
-  printf '\n' >&2
   [[ -n "${content}" ]] || die "${content_name}内容不能为空"
   printf -v "${variable_name}" '%s' "${content}"
   result "已接收${content_name}"
@@ -316,7 +314,7 @@ prepare_mtls_settings() {
   fi
 
   prompt_pem_content "服务端证书" PROMETHEUS_TLS_CERT_CONTENT
-  prompt_pem_content "服务端私钥（输入内容不会回显）" PROMETHEUS_TLS_KEY_CONTENT
+  prompt_pem_content "服务端私钥" PROMETHEUS_TLS_KEY_CONTENT
   prompt_pem_content "客户端 CA 证书" PROMETHEUS_CLIENT_CA_CONTENT
   validate_certificate_content "${PROMETHEUS_TLS_CERT_CONTENT}" "服务端证书"
   validate_private_key_content

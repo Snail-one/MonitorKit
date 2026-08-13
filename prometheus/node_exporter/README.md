@@ -52,7 +52,7 @@ sudo ./install.sh mtls
 2. 服务端私钥 PEM 内容
 3. 用于验证客户端证书的 CA PEM 内容
 
-每段内容粘贴完成后，需要单独输入一行 `EOF`。私钥输入不会在终端回显。证书和生成的 Web 配置保存在 `/etc/node_exporter`，服务使用 `RequireAndVerifyClientCert` 强制校验客户端证书，指标地址变为 HTTPS。
+每段内容粘贴完成后，需要单独输入一行 `EOF`。输入的证书和私钥内容会正常显示在终端中，便于粘贴时检查。证书和生成的 Web 配置保存在 `/etc/node_exporter`，服务使用 `RequireAndVerifyClientCert` 强制校验客户端证书，指标地址变为 HTTPS。
 
 ### 需要提供的 PEM 内容
 

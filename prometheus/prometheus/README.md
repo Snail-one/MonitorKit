@@ -52,7 +52,7 @@ sudo ./install.sh mtls
 2. 服务端私钥 PEM 内容
 3. 用于验证客户端证书的 CA PEM 内容
 
-每段内容粘贴完成后，需要单独输入一行 `EOF`。私钥输入不会在终端回显。证书和生成的 Web 配置保存在 `/etc/prometheus`，服务使用 `RequireAndVerifyClientCert` 强制校验客户端证书。启用后访问协议变为 HTTPS；抓取受 mTLS 保护的目标时，还需要在 `prometheus.yml` 中配置对应客户端证书。
+每段内容粘贴完成后，需要单独输入一行 `EOF`。输入的证书和私钥内容会正常显示在终端中，便于粘贴时检查。证书和生成的 Web 配置保存在 `/etc/prometheus`，服务使用 `RequireAndVerifyClientCert` 强制校验客户端证书。启用后访问协议变为 HTTPS；抓取受 mTLS 保护的目标时，还需要在 `prometheus.yml` 中配置对应客户端证书。
 
 ### 需要提供的 PEM 内容
 
