@@ -134,19 +134,36 @@ scrape_configs:
 向导会依次收集：
 
 1. 探针地址，例如 `node01.example.com:9100`。
-2. Prometheus 任务名称。
-3. 连接方式，默认使用 mTLS/HTTPS，也可以选择普通 HTTP。
-4. mTLS 模式下依次填写 node_exporter 服务端根 CA、Prometheus 客户端证书和客户端私钥。
+2. 连接方式，默认使用 mTLS/HTTPS，也可以选择普通 HTTP。
+3. 需要新建任务时的 Prometheus 任务名称。
 
-证书输入方式与 Prometheus 主程序的 mTLS 配置相同：脚本按照 `vim → nano → vi` 自动选择编辑器，显示固定文件路径，按回车打开文件并粘贴 PEM 内容，保存退出后自动校验。无需手动输入路径。
+### 证书复用逻辑
 
-固定文件路径：
+向导会先检查默认证书组：
 
 ```text
 /etc/prometheus/client/node-server-ca.crt
 /etc/prometheus/client/prometheus-client.crt
 /etc/prometheus/client/prometheus-client.key
 ```
+
+处理规则：
+
+1. 三个文件存在、PEM 格式有效且客户端证书与私钥匹配：提示选择复用现有证书或使用另一套证书，默认复用。
+2. 选择复用：查找引用相同三条证书路径的现有 HTTPS 抓取任务；找到后直接将新探针追加到该任务的 `static_configs`，不再打开编辑器，也不再询问任务名称。显式设置了 `server_name` 的任务不会被复用，以免新节点按错误的证书名称验证。
+3. 证书有效但没有兼容任务：复用证书并创建一个新的抓取任务。
+4. 证书缺失、格式无效或证书与私钥不匹配：才打开编辑器要求填写证书。
+5. 选择另一套 CA：使用探针地址生成独立证书目录，填写独立证书，并创建独立抓取任务，不会覆盖默认客户端证书组。
+
+独立证书目录示例：
+
+```text
+/etc/prometheus/client/node02.example.com/node-server-ca.crt
+/etc/prometheus/client/node02.example.com/prometheus-client.crt
+/etc/prometheus/client/node02.example.com/prometheus-client.key
+```
+
+需要填写证书时，输入方式与 Prometheus 主程序的 mTLS 配置相同：脚本按照 `vim → nano → vi` 自动选择编辑器，显示文件路径，按回车打开文件并粘贴 PEM 内容，保存退出后自动校验。无需手动输入路径。
 
 脚本会校验证书和私钥的 PEM 格式，并检查 Prometheus 客户端证书与客户端私钥是否匹配。输入 `q` 可以随时取消并返回主菜单。已有文件不会被预先清空，打开编辑器时可以直接检查或更新现有内容。
 

@@ -477,6 +477,66 @@ is_valid_target_address() {
   return 1
 }
 
+mtls_client_files_valid() {
+  local ca_file="$1"
+  local cert_file="$2"
+  local key_file="$3"
+  validate_pem_file "${ca_file}" certificate &&
+    validate_pem_file "${cert_file}" certificate &&
+    validate_pem_file "${key_file}" private_key &&
+    certificate_matches_private_key "${cert_file}" "${key_file}"
+}
+
+append_target_to_reusable_job() {
+  local source_file="$1"
+  local destination_file="$2"
+  local target="$3"
+  local ca_file="$4"
+  local cert_file="$5"
+  local key_file="$6"
+
+  awk -v target="${target}" -v ca_file="${ca_file}" -v cert_file="${cert_file}" -v key_file="${key_file}" '
+    function flush_job(    count, lines, index_number, line, inserted) {
+      if (job_buffer == "") return
+      compatible = index(job_buffer, "scheme: https") &&
+                   index(job_buffer, "static_configs:") &&
+                   index(job_buffer, "ca_file:") && index(job_buffer, ca_file) &&
+                   index(job_buffer, "cert_file:") && index(job_buffer, cert_file) &&
+                   index(job_buffer, "key_file:") && index(job_buffer, key_file) &&
+                   !index(job_buffer, "server_name:")
+      if (compatible && !reused) {
+        count = split(job_buffer, lines, "\n")
+        inserted = 0
+        for (index_number = 1; index_number <= count; index_number++) {
+          line = lines[index_number]
+          if (!inserted && line ~ /^    tls_config:[[:space:]]*$/) {
+            print "      - targets: [\"" target "\"]"
+            inserted = 1
+            reused = 1
+          }
+          if (line != "") print line
+        }
+      } else {
+        printf "%s", job_buffer
+      }
+      job_buffer = ""
+    }
+    BEGIN { in_job = 0; reused = 0 }
+    /^  - job_name:/ {
+      flush_job()
+      in_job = 1
+    }
+    {
+      if (in_job) job_buffer = job_buffer $0 ORS
+      else print
+    }
+    END {
+      flush_job()
+      if (!reused) exit 42
+    }
+  ' "${source_file}" >"${destination_file}"
+}
+
 add_node_exporter_target() {
   local config_file="${CONFIG_DIR}/prometheus.yml"
   local target=""
@@ -489,6 +549,9 @@ add_node_exporter_target() {
   local ca_file="/etc/prometheus/client/node-server-ca.crt"
   local cert_file="/etc/prometheus/client/prometheus-client.crt"
   local key_file="/etc/prometheus/client/prometheus-client.key"
+  local certificate_choice=""
+  local reuse_certificates=0
+  local reused_job=0
   local temp_dir=""
   local fragment_file=""
   local candidate_file=""
@@ -515,24 +578,6 @@ add_node_exporter_target() {
       break
     fi
     warn "输入无效：请使用 域名:端口、IP:端口 或 [IPv6]:端口，也可以输入 q 返回主菜单"
-  done
-
-  default_job_name="node_$(sed 's/[^A-Za-z0-9_]/_/g' <<<"${target%:*}")"
-  while true; do
-    printf '%s任务名称（默认 %s，q 返回主菜单）：%s' "${BLUE}" "${default_job_name}" "${RESET}" >&2
-    IFS= read -e -r job_name <"${INTERACTIVE_DEVICE}" || die "读取任务名称失败"
-    case "${job_name}" in
-      q|Q)
-        RETURN_TO_MAIN=1
-        result "正在返回主菜单"
-        return 0
-        ;;
-    esac
-    job_name="${job_name:-${default_job_name}}"
-    if [[ "${job_name}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
-      break
-    fi
-    warn "输入无效：任务名称只能包含字母、数字、点、下划线和连字符"
   done
 
   printf '%s  1.%s mTLS/HTTPS（默认）\n' "${ORANGE}" "${RESET}" >&2
@@ -572,33 +617,71 @@ add_node_exporter_target() {
   if [[ "${scrape_scheme}" == "https" ]]; then
     printf '\n'
     step "配置 Prometheus 抓取探针使用的 mTLS 证书"
-    info "脚本将使用固定目录：${client_dir}"
-    select_text_editor
-    install -d -o root -g "${PROMETHEUS_GROUP}" -m 0750 "${client_dir}"
-    touch "${ca_file}" "${cert_file}" "${key_file}"
-    chown root:"${PROMETHEUS_GROUP}" "${ca_file}" "${cert_file}" "${key_file}"
-    chmod 0640 "${ca_file}" "${cert_file}" "${key_file}"
+    if mtls_client_files_valid "${ca_file}" "${cert_file}" "${key_file}"; then
+      result "检测到有效的现有 mTLS 客户端证书组"
+      info "根 CA：${ca_file}"
+      info "客户端证书：${cert_file}"
+      info "客户端私钥：${key_file}"
+      printf '%s  1.%s 复用现有证书和兼容的 node_exporter 任务（默认）\n' "${GREEN}" "${RESET}" >&2
+      printf '%s  2.%s 使用另一套 CA 和客户端证书（创建独立任务）\n' "${ORANGE}" "${RESET}" >&2
+      printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
+      while true; do
+        printf '%s请选择证书使用方式 [1-2]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
+        IFS= read -e -r certificate_choice <"${INTERACTIVE_DEVICE}" || die "读取证书使用方式失败"
+        case "${certificate_choice}" in
+          ""|1)
+            reuse_certificates=1
+            result "将复用现有 mTLS 客户端证书组"
+            break
+            ;;
+          2)
+            client_dir="/etc/prometheus/client/$(sed 's/[^A-Za-z0-9_.-]/_/g' <<<"${target%:*}")"
+            ca_file="${client_dir}/node-server-ca.crt"
+            cert_file="${client_dir}/prometheus-client.crt"
+            key_file="${client_dir}/prometheus-client.key"
+            result "将使用独立证书目录：${client_dir}"
+            break
+            ;;
+          q|Q)
+            RETURN_TO_MAIN=1
+            result "正在返回主菜单"
+            return 0
+            ;;
+          *) warn "输入无效：请输入 1、2 或 q" ;;
+        esac
+      done
+    else
+      warn "未检测到完整有效的现有证书组，需要先配置证书"
+    fi
 
-    edit_pem_file "node_exporter 服务端根 CA 证书（信任锚）" "${ca_file}" certificate \
-      "签发 node_exporter 服务端证书的根 CA 公共证书；多个 CA 可按 PEM 格式组成证书包" \
-      "node_exporter 服务端证书、客户端证书或根 CA 私钥"
-    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+    if [[ "${reuse_certificates}" == "0" ]]; then
+      select_text_editor
+      install -d -o root -g "${PROMETHEUS_GROUP}" -m 0750 "${client_dir}"
+      touch "${ca_file}" "${cert_file}" "${key_file}"
+      chown root:"${PROMETHEUS_GROUP}" "${ca_file}" "${cert_file}" "${key_file}"
+      chmod 0640 "${ca_file}" "${cert_file}" "${key_file}"
 
-    while true; do
-      edit_pem_file "Prometheus 抓取探针客户端证书" "${cert_file}" certificate \
-        "Prometheus 连接 node_exporter 时出示的 clientAuth 客户端证书" \
-        "Prometheus 服务端证书、node_exporter 服务端证书或 CA 私钥"
+      edit_pem_file "node_exporter 服务端根 CA 证书（信任锚）" "${ca_file}" certificate \
+        "签发 node_exporter 服务端证书的根 CA 公共证书；多个 CA 可按 PEM 格式组成证书包" \
+        "node_exporter 服务端证书、客户端证书或根 CA 私钥"
       [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
-      edit_pem_file "Prometheus 抓取探针客户端私钥" "${key_file}" private_key \
-        "与上一步 Prometheus 客户端证书匹配的未加密私钥" \
-        "服务端私钥、证书或加密私钥"
-      [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
-      if certificate_matches_private_key "${cert_file}" "${key_file}"; then
-        result "Prometheus 客户端证书和私钥匹配"
-        break
-      fi
-      warn "Prometheus 客户端证书和私钥不匹配，请重新编辑"
-    done
+
+      while true; do
+        edit_pem_file "Prometheus 抓取探针客户端证书" "${cert_file}" certificate \
+          "Prometheus 连接 node_exporter 时出示的 clientAuth 客户端证书" \
+          "Prometheus 服务端证书、node_exporter 服务端证书或 CA 私钥"
+        [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+        edit_pem_file "Prometheus 抓取探针客户端私钥" "${key_file}" private_key \
+          "与上一步 Prometheus 客户端证书匹配的未加密私钥" \
+          "服务端私钥、证书或加密私钥"
+        [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+        if certificate_matches_private_key "${cert_file}" "${key_file}"; then
+          result "Prometheus 客户端证书和私钥匹配"
+          break
+        fi
+        warn "Prometheus 客户端证书和私钥不匹配，请重新编辑"
+      done
+    fi
   fi
 
   temp_dir="$(mktemp -d -t prometheus-add-target.XXXXXXXX)"
@@ -608,8 +691,39 @@ add_node_exporter_target() {
   backup_file="${temp_dir}/prometheus.yml.backup"
   cp -a "${config_file}" "${backup_file}"
 
-  if [[ "${scrape_scheme}" == "https" ]]; then
-    cat >"${fragment_file}" <<EOF
+  if [[ "${scrape_scheme}" == "https" && "${reuse_certificates}" == "1" ]]; then
+    if append_target_to_reusable_job "${config_file}" "${candidate_file}" "${target}" \
+      "${ca_file}" "${cert_file}" "${key_file}"; then
+      reused_job=1
+      result "已找到使用相同证书配置的 node_exporter 任务，将目标追加到该任务"
+    else
+      info "未找到引用相同证书路径的兼容任务，将创建新任务并复用现有证书"
+    fi
+  fi
+
+  if [[ "${reused_job}" == "0" ]]; then
+    default_job_name="node_$(sed 's/[^A-Za-z0-9_]/_/g' <<<"${target%:*}")"
+    while true; do
+      printf '%s任务名称（默认 %s，q 返回主菜单）：%s' "${BLUE}" "${default_job_name}" "${RESET}" >&2
+      IFS= read -e -r job_name <"${INTERACTIVE_DEVICE}" || die "读取任务名称失败"
+      case "${job_name}" in
+        q|Q)
+          rm -rf -- "${temp_dir}"
+          WORK_DIR=""
+          RETURN_TO_MAIN=1
+          result "正在返回主菜单"
+          return 0
+          ;;
+      esac
+      job_name="${job_name:-${default_job_name}}"
+      if [[ "${job_name}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+        break
+      fi
+      warn "输入无效：任务名称只能包含字母、数字、点、下划线和连字符"
+    done
+
+    if [[ "${scrape_scheme}" == "https" ]]; then
+      cat >"${fragment_file}" <<EOF
   - job_name: "${job_name}"
     scheme: https
     static_configs:
@@ -619,38 +733,39 @@ add_node_exporter_target() {
       cert_file: ${cert_file}
       key_file: ${key_file}
 EOF
-  else
-    cat >"${fragment_file}" <<EOF
+    else
+      cat >"${fragment_file}" <<EOF
   - job_name: "${job_name}"
     scheme: http
     static_configs:
       - targets: ["${target}"]
 EOF
-  fi
+    fi
 
-  awk -v fragment="${fragment_file}" '
-    function emit_fragment(line) {
-      while ((getline line < fragment) > 0) print line
-      close(fragment)
-    }
-    BEGIN { found = 0; inside = 0; inserted = 0 }
-    /^scrape_configs:[[:space:]]*$/ { found = 1; inside = 1; print; next }
-    inside && /^[^[:space:]#][^:]*:[[:space:]]*/ {
-      emit_fragment()
-      inserted = 1
-      inside = 0
-    }
-    { print }
-    END {
-      if (!found) {
-        print ""
-        print "scrape_configs:"
-        emit_fragment()
-      } else if (inside && !inserted) {
-        emit_fragment()
+    awk -v fragment="${fragment_file}" '
+      function emit_fragment(line) {
+        while ((getline line < fragment) > 0) print line
+        close(fragment)
       }
-    }
-  ' "${config_file}" >"${candidate_file}"
+      BEGIN { found = 0; inside = 0; inserted = 0 }
+      /^scrape_configs:[[:space:]]*$/ { found = 1; inside = 1; print; next }
+      inside && /^[^[:space:]#][^:]*:[[:space:]]*/ {
+        emit_fragment()
+        inserted = 1
+        inside = 0
+      }
+      { print }
+      END {
+        if (!found) {
+          print ""
+          print "scrape_configs:"
+          emit_fragment()
+        } else if (inside && !inserted) {
+          emit_fragment()
+        }
+      }
+    ' "${config_file}" >"${candidate_file}"
+  fi
 
   printf '\n'
   step "校验 Prometheus 配置"
@@ -674,7 +789,11 @@ EOF
   fi
 
   result "探针已添加：${target}"
-  info "任务名称：${job_name}"
+  if [[ "${reused_job}" == "1" ]]; then
+    info "任务处理：已追加到现有兼容任务"
+  else
+    info "任务名称：${job_name}"
+  fi
   info "连接方式：${scrape_scheme}"
   rm -rf -- "${temp_dir}"
   WORK_DIR=""

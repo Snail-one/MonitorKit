@@ -86,6 +86,8 @@ Prometheus 作为 mTLS 客户端抓取 node_exporter 时，建议另外准备：
 
 这些文件不是 Prometheus 安装脚本中 `/etc/prometheus/tls/` 下的服务端文件，需要根据抓取配置单独部署。
 
+使用安装脚本的“添加 node_exporter 探针”向导时，脚本会先校验这组三个文件。文件有效且证书私钥匹配时可以直接复用，并把目标追加到引用相同证书路径的现有任务；只有证书无效或选择不同 CA 时才打开编辑器。显式设置 `server_name` 的现有任务不会追加其他节点。不同 CA 使用 `/etc/prometheus/client/<探针地址>/` 独立目录和独立抓取任务。
+
 示例配置：
 
 ```yaml
