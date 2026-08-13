@@ -45,3 +45,5 @@ sudo ./install.sh uninstall
 ```
 
 卸载命令会停止服务，并删除 node_exporter 服务文件、程序文件及专用系统用户组，不会影响 Prometheus 服务端。
+
+脚本会在终端中显示彩色步骤和结果提示。设置 `NO_COLOR=1` 可关闭颜色，设置 `FORCE_COLOR=1` 可强制开启颜色。

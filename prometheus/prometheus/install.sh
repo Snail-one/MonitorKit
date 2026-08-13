@@ -19,24 +19,99 @@ readonly DATA_DIR="/var/lib/prometheus"
 readonly BIN_DIR="/usr/local/bin"
 readonly SERVICE_FILE="/etc/systemd/system/prometheus.service"
 
+RESET=""
+BOLD=""
+ORANGE=""
+BLUE=""
+GREEN=""
+YELLOW=""
+RED=""
+
+init_colors() {
+  if [[ -n "${NO_COLOR+x}" ]]; then
+    return
+  fi
+  if [[ "${FORCE_COLOR:-0}" != "1" ]]; then
+    [[ "${TERM:-}" != "dumb" && -t 1 ]] || return
+  fi
+
+  local esc
+  esc="$(printf '\033')"
+  RESET="${esc}[0m"
+  BOLD="${esc}[1m"
+  ORANGE="${esc}[38;5;208m"
+  BLUE="${esc}[34m"
+  GREEN="${esc}[32m"
+  YELLOW="${esc}[33m"
+  RED="${esc}[31m"
+}
+
+print_banner() {
+  printf '%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Prometheus" "${RESET}"
+  printf '%s│ %s%s\n' "${ORANGE}" "$1" "${RESET}"
+  printf '%s%s%s\n\n' "${ORANGE}" "╰──────────────────────────────────────────────" "${RESET}"
+}
+
+print_release_info() {
+  printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Prometheus" "${RESET}"
+  printf '%s│ %s%s%s\n' "${ORANGE}" "${BOLD}${ORANGE}" "发布信息" "${RESET}"
+  printf '%s│ %s平台：%sLinux/%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "$1"
+  printf '%s│ %s当前版本：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "$2"
+  printf '%s│ %s目标版本：%s%s%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${BOLD}" "$3" "${RESET}"
+  printf '%s│ %s执行操作：%s%s%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${BOLD}" "$4" "${RESET}"
+  printf '%s│ %s监听地址：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${PROMETHEUS_LISTEN_ADDRESS}"
+  printf '%s%s%s\n' "${ORANGE}" "╰──────────────────────────────────────────────" "${RESET}"
+}
+
+print_completion_card() {
+  printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Prometheus" "${RESET}"
+  printf '%s│ %s%s完成%s\n' "${ORANGE}" "${BOLD}${GREEN}" "$1" "${RESET}"
+  printf '%s│ %s版本：%s%s%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${BOLD}" "$2" "${RESET}"
+  printf '%s│ %s服务：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "prometheus.service"
+  printf '%s│ %s访问：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "http://${PROMETHEUS_LISTEN_ADDRESS}/"
+  printf '%s%s%s\n' "${ORANGE}" "╰──────────────────────────────────────────────" "${RESET}"
+}
+
+print_result_card() {
+  printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Prometheus" "${RESET}"
+  printf '%s│ %s%s%s\n' "${ORANGE}" "${BOLD}${GREEN}" "$1" "${RESET}"
+  printf '%s%s%s\n' "${ORANGE}" "╰──────────────────────────────────────────────" "${RESET}"
+}
+
+step() {
+  printf '%s[步骤]%s %s\n' "${ORANGE}" "${RESET}" "$*"
+}
+
+info() {
+  printf '%s[信息]%s %s\n' "${BLUE}" "${RESET}" "$*"
+}
+
+result() {
+  printf '%s[结果]%s %s\n' "${GREEN}" "${RESET}" "$*"
+}
+
+warn() {
+  printf '%s[警告]%s %s\n' "${YELLOW}" "${RESET}" "$*"
+}
+
 log() {
-  printf '[prometheus-installer] %s\n' "$*"
+  info "$@"
 }
 
 die() {
-  printf '[prometheus-installer] ERROR: %s\n' "$*" >&2
+  printf '%s[错误]%s %s\n' "${RED}" "${RESET}" "$*" >&2
   exit 1
 }
 
 usage() {
   cat <<'EOF'
-Install, upgrade, or uninstall Prometheus.
+Prometheus 一键安装、更新与卸载脚本。
 
-Usage:
+用法：
   sudo ./install.sh [install]
   sudo ./install.sh uninstall
 
-Optional environment variables for installation:
+可选安装环境变量：
   PROMETHEUS_VERSION=3.13.1
   PROMETHEUS_LISTEN_ADDRESS=0.0.0.0:9090
   DOWNLOAD_BASE_URL=https://github.com/prometheus/prometheus/releases/download
@@ -44,13 +119,13 @@ EOF
 }
 
 require_root() {
-  [[ "${EUID}" -eq 0 ]] || die "please run this script as root"
+  [[ "${EUID}" -eq 0 ]] || die "该操作需要 root 权限，请使用 sudo 运行"
 }
 
 require_commands() {
   local command_name
   for command_name in "$@"; do
-    command -v "${command_name}" >/dev/null 2>&1 || die "required command not found: ${command_name}"
+    command -v "${command_name}" >/dev/null 2>&1 || die "缺少必要命令：${command_name}"
   done
 }
 
@@ -61,12 +136,12 @@ detect_arch() {
     armv7l|armv7) printf 'armv7\n' ;;
     ppc64le) printf 'ppc64le\n' ;;
     s390x) printf 's390x\n' ;;
-    *) die "unsupported CPU architecture: $(uname -m)" ;;
+    *) die "不支持的处理器架构：$(uname -m)" ;;
   esac
 }
 
 validate_version() {
-  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || die "invalid PROMETHEUS_VERSION: $1"
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || die "无效的 PROMETHEUS_VERSION：$1"
 }
 
 validate_listen_address() {
@@ -76,20 +151,40 @@ validate_listen_address() {
      [[ "${value}" =~ ^\[[0-9A-Fa-f:.]+\]:([0-9]{1,5})$ ]]; then
     port="${BASH_REMATCH[1]}"
   else
-    die "invalid PROMETHEUS_LISTEN_ADDRESS: ${value}"
+    die "无效的 PROMETHEUS_LISTEN_ADDRESS：${value}"
   fi
-  (( port >= 1 && port <= 65535 )) || die "listen port must be between 1 and 65535"
+  (( port >= 1 && port <= 65535 )) || die "监听端口必须在 1 到 65535 之间"
 }
 
 download() {
   local url="$1"
   local destination="$2"
   if command -v curl >/dev/null 2>&1; then
-    curl --fail --location --retry 3 --retry-delay 2 --output "${destination}" "${url}"
+    curl --fail --location --silent --show-error --retry 3 --connect-timeout 15 --output "${destination}" "${url}"
   elif command -v wget >/dev/null 2>&1; then
-    wget --tries=3 --output-document="${destination}" "${url}"
+    wget --quiet --tries=3 --timeout=15 --output-document="${destination}" "${url}"
   else
-    die "curl or wget is required"
+    die "需要 curl 或 wget 才能下载安装包"
+  fi
+}
+
+download_asset() {
+  local url="$1"
+  local destination="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl --fail --location --show-error --retry 3 --connect-timeout 15 --progress-bar --output "${destination}" "${url}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget --tries=3 --timeout=15 --output-document="${destination}" "${url}"
+  else
+    die "需要 curl 或 wget 才能下载安装包"
+  fi
+}
+
+installed_version() {
+  if [[ -x "${BIN_DIR}/prometheus" ]]; then
+    local version_output
+    version_output="$("${BIN_DIR}/prometheus" --version 2>/dev/null || true)"
+    sed -n '1s/^prometheus, version \([^ ]*\).*/\1/p' <<<"${version_output}"
   fi
 }
 
@@ -106,28 +201,33 @@ create_service_account() {
 main() {
   case "${1:-install}" in
     -h|--help|help)
-      [[ "$#" -le 1 ]] || die "too many arguments (try --help)"
+      [[ "$#" -le 1 ]] || die "参数过多，请使用 --help 查看用法"
       usage
       exit 0
       ;;
     uninstall|--uninstall|-u)
-      [[ "$#" -eq 1 ]] || die "too many arguments (try --help)"
+      [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
       uninstall_prometheus
       exit 0
       ;;
     install|--install|-i)
-      [[ "$#" -le 1 ]] || die "too many arguments (try --help)"
+      [[ "$#" -le 1 ]] || die "参数过多，请使用 --help 查看用法"
       ;;
     *)
-      die "unknown command: $1 (try --help)"
+      die "未知命令：$1，请使用 --help 查看用法"
       ;;
   esac
 
+  print_banner "一键安装与更新"
+  step "检查运行环境"
   require_root
-  require_commands uname tar sha256sum install getent id groupadd useradd systemctl
+  require_commands awk chmod chown cp getent groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
+  result "运行环境检查通过"
 
   local version="${PROMETHEUS_VERSION#v}"
   local arch
+  local current_version
+  local action
   local archive
   local release_url
   local work_dir
@@ -137,22 +237,40 @@ main() {
   validate_version "${version}"
   validate_listen_address "${PROMETHEUS_LISTEN_ADDRESS}"
   arch="$(detect_arch)"
+  current_version="$(installed_version)"
+  current_version="${current_version:-未安装}"
+  if [[ "${current_version}" == "${version}" ]]; then
+    action="重新安装/配置"
+  elif [[ "${current_version}" == "未安装" ]]; then
+    action="安装"
+  else
+    action="更新"
+  fi
+  print_release_info "${arch}" "${current_version}" "${version}" "${action}"
   archive="prometheus-${version}.linux-${arch}.tar.gz"
   release_url="${DOWNLOAD_BASE_URL%/}/v${version}"
   work_dir="$(mktemp -d -t prometheus-install.XXXXXXXX)"
   trap 'rm -rf -- "${work_dir}"' EXIT
 
-  log "downloading Prometheus ${version} for linux-${arch}"
-  download "${release_url}/${archive}" "${work_dir}/${archive}"
+  printf '\n'
+  step "下载发布文件"
+  info "正在下载：${archive}"
+  download_asset "${release_url}/${archive}" "${work_dir}/${archive}"
   download "${release_url}/sha256sums.txt" "${work_dir}/sha256sums.txt"
+  result "发布文件下载完成"
 
+  printf '\n'
+  step "校验发布文件"
   checksum="$(awk -v file="${archive}" '$2 == file || $2 == ("*" file) { print $1; exit }' "${work_dir}/sha256sums.txt")"
-  [[ "${checksum}" =~ ^[0-9a-fA-F]{64}$ ]] || die "no valid checksum found for ${archive}"
-  printf '%s  %s\n' "${checksum}" "${work_dir}/${archive}" | sha256sum --check --status || die "checksum verification failed"
+  [[ "${checksum}" =~ ^[0-9a-fA-F]{64}$ ]] || die "校验文件中没有 ${archive} 的有效校验值"
+  printf '%s  %s\n' "${checksum}" "${work_dir}/${archive}" | sha256sum --check --status || die "安装包 SHA-256 校验失败"
+  result "SHA-256 校验通过"
 
+  printf '\n'
+  step "安装 Prometheus"
   tar -xzf "${work_dir}/${archive}" -C "${work_dir}"
   extracted_dir="${work_dir}/prometheus-${version}.linux-${arch}"
-  [[ -x "${extracted_dir}/prometheus" && -x "${extracted_dir}/promtool" ]] || die "release archive is missing expected binaries"
+  [[ -x "${extracted_dir}/prometheus" && -x "${extracted_dir}/promtool" ]] || die "发布包中缺少 prometheus 或 promtool 程序"
 
   create_service_account
   install -d -m 0755 "${CONFIG_DIR}"
@@ -171,26 +289,33 @@ main() {
 
   if [[ ! -e "${CONFIG_DIR}/prometheus.yml" ]]; then
     apply_default_config
-    log "created default configuration at ${CONFIG_DIR}/prometheus.yml"
+    result "已创建默认配置：${CONFIG_DIR}/prometheus.yml"
   else
-    log "keeping existing configuration at ${CONFIG_DIR}/prometheus.yml"
+    info "保留现有配置：${CONFIG_DIR}/prometheus.yml"
   fi
+  info "正在检查 Prometheus 配置"
   "${BIN_DIR}/promtool" check config "${CONFIG_DIR}/prometheus.yml"
+  result "程序和配置安装完成"
 
+  printf '\n'
+  step "配置并启动系统服务"
   write_service_file
   chown -R root:"${PROMETHEUS_GROUP}" "${CONFIG_DIR}"
   chmod 0750 "${CONFIG_DIR}"
 
   systemctl daemon-reload
-  systemctl enable --now prometheus.service
+  systemctl enable prometheus.service >/dev/null
   systemctl restart prometheus.service
-  systemctl --no-pager --full status prometheus.service || die "Prometheus service failed to start"
-
-  log "installation complete: http://${PROMETHEUS_LISTEN_ADDRESS}/"
-  log "service logs: journalctl -u prometheus -f"
+  if ! systemctl is-active --quiet prometheus.service; then
+    systemctl --no-pager --full status prometheus.service || true
+    die "Prometheus 服务启动失败"
+  fi
+  result "Prometheus 服务已启动并设置为开机自启"
+  info "查看日志：journalctl -u prometheus -f"
 
   trap - EXIT
   rm -rf -- "${work_dir}"
+  print_completion_card "${action}" "${version}"
 }
 
 apply_default_config() {
@@ -249,12 +374,24 @@ EOF
 }
 
 uninstall_prometheus() {
-  require_root
-  require_commands systemctl
+  local current_version
 
-  log "stopping and disabling Prometheus"
+  print_banner "一键卸载"
+  step "检查安装状态"
+  require_root
+  require_commands sed systemctl
+
+  current_version="$(installed_version)"
+  info "当前版本：${current_version:-未知或未安装}"
+  info "程序路径：${BIN_DIR}/prometheus"
+
+  printf '\n'
+  step "停止 Prometheus 服务"
+  info "正在停止并禁用 prometheus.service"
   systemctl disable --now prometheus.service >/dev/null 2>&1 || true
 
+  printf '\n'
+  step "删除服务和程序文件"
   rm -f -- "${SERVICE_FILE}"
   rm -f -- "/etc/systemd/system/multi-user.target.wants/prometheus.service"
   rm -f -- "${BIN_DIR}/prometheus"
@@ -263,8 +400,11 @@ uninstall_prometheus() {
   systemctl daemon-reload
   systemctl reset-failed prometheus.service >/dev/null 2>&1 || true
 
-  log "Prometheus has been uninstalled"
-  log "configuration and data were preserved in ${CONFIG_DIR} and ${DATA_DIR}"
+  result "Prometheus 服务和程序文件已删除"
+  info "配置已保留：${CONFIG_DIR}"
+  info "监控数据已保留：${DATA_DIR}"
+  print_result_card "Prometheus 卸载完成"
 }
 
+init_colors
 main "$@"

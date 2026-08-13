@@ -45,3 +45,5 @@ sudo ./install.sh uninstall
 ```
 
 卸载命令会停止服务，并删除 Prometheus 服务文件、`prometheus` 和 `promtool` 程序。配置目录 `/etc/prometheus`、数据目录 `/var/lib/prometheus` 及服务账号会被保留，方便以后恢复或重新安装。
+
+脚本会在终端中显示彩色步骤和结果提示。设置 `NO_COLOR=1` 可关闭颜色，设置 `FORCE_COLOR=1` 可强制开启颜色。
