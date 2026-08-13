@@ -14,9 +14,6 @@ DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL:-https://github.com/prometheus/prometheus
 PROMETHEUS_MTLS_MODE_PRESET=0
 [[ -n "${PROMETHEUS_MTLS_ENABLED+x}" ]] && PROMETHEUS_MTLS_MODE_PRESET=1
 PROMETHEUS_MTLS_ENABLED="${PROMETHEUS_MTLS_ENABLED:-0}"
-PROMETHEUS_TLS_CERT_CONTENT=""
-PROMETHEUS_TLS_KEY_CONTENT=""
-PROMETHEUS_CLIENT_CA_CONTENT=""
 
 readonly PROMETHEUS_USER="prometheus"
 readonly PROMETHEUS_GROUP="prometheus"
@@ -39,6 +36,7 @@ WEB_CONFIG_ARGUMENT=""
 WEB_SCHEME="http"
 MTLS_STATUS="关闭"
 INTERACTIVE_DEVICE=""
+TEXT_EDITOR=""
 PURGE_MODE=0
 SELECTED_ACTION="install"
 WORK_DIR=""
@@ -148,7 +146,7 @@ Prometheus 一键安装、更新与卸载脚本。
 mTLS 环境变量：
   PROMETHEUS_MTLS_ENABLED=1
 
-mTLS 模式会交互读取服务端证书、私钥和客户端 CA 的 PEM 内容。
+mTLS 模式会使用 vim、nano 或 vi 编辑并校验证书文件。
 EOF
 }
 
@@ -200,24 +198,78 @@ set_interactive_device() {
   fi
 }
 
-prompt_pem_content() {
-  local content_name="$1"
-  local variable_name="$2"
-  local content=""
-  local line=""
-
-  set_interactive_device
-  info "请粘贴${content_name}的 PEM 内容（输入内容会正常显示），完成后单独输入一行 EOF"
-  while true; do
-    if ! IFS= read -r line <"${INTERACTIVE_DEVICE}"; then
-      die "读取${content_name}失败"
+select_text_editor() {
+  local editor
+  for editor in vim nano vi; do
+    if command -v "${editor}" >/dev/null 2>&1; then
+      TEXT_EDITOR="$(command -v "${editor}")"
+      result "证书编辑器：${editor}"
+      return 0
     fi
-    [[ "${line}" == "EOF" ]] && break
-    content+="${line}"$'\n'
   done
-  [[ -n "${content}" ]] || die "${content_name}内容不能为空"
-  printf -v "${variable_name}" '%s' "${content}"
-  result "已接收${content_name}"
+  die "未找到 vim、nano 或 vi，请先安装任意一个编辑器（例如：sudo apt install vim）后重新运行"
+}
+
+open_text_editor() {
+  local file_path="$1"
+  if [[ "${INTERACTIVE_DEVICE}" == "/dev/tty" ]]; then
+    "${TEXT_EDITOR}" "${file_path}" </dev/tty >/dev/tty 2>&1
+  else
+    "${TEXT_EDITOR}" "${file_path}"
+  fi
+}
+
+validate_pem_file() {
+  local file_path="$1"
+  local content_type="$2"
+  [[ -s "${file_path}" ]] || return 1
+  case "${content_type}" in
+    certificate) openssl x509 -in "${file_path}" -noout >/dev/null 2>&1 ;;
+    private_key) openssl pkey -in "${file_path}" -passin pass: -noout >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+edit_pem_file() {
+  local content_name="$1"
+  local file_path="$2"
+  local content_type="$3"
+  local answer=""
+
+  while true; do
+    printf '\n'
+    step "配置${content_name}"
+    info "文件路径：${file_path}"
+    info "手动编辑命令：sudo ${TEXT_EDITOR##*/} ${file_path}"
+    printf '%s按回车打开 %s，输入 q 取消：%s' "${BLUE}" "${TEXT_EDITOR##*/}" "${RESET}" >&2
+    IFS= read -e -r answer <"${INTERACTIVE_DEVICE}" || die "读取用户输入失败"
+    case "${answer}" in
+      "") ;;
+      q|Q) die "用户取消 mTLS 证书配置" ;;
+      *) warn "请直接按回车打开编辑器，或输入 q 取消"; continue ;;
+    esac
+
+    if ! open_text_editor "${file_path}"; then
+      warn "编辑器异常退出，请重试"
+      continue
+    fi
+    if validate_pem_file "${file_path}" "${content_type}"; then
+      result "${content_name}校验通过"
+      return 0
+    fi
+    warn "${content_name}为空、格式无效或使用了加密私钥，请重新编辑"
+  done
+}
+
+certificate_matches_private_key() {
+  local certificate_file="$1"
+  local private_key_file="$2"
+  local certificate_public_key
+  local private_public_key
+
+  certificate_public_key="$(openssl x509 -in "${certificate_file}" -pubkey -noout 2>/dev/null | openssl pkey -pubin -outform DER 2>/dev/null | sha256sum | awk '{print $1}')" || return 1
+  private_public_key="$(openssl pkey -in "${private_key_file}" -passin pass: -pubout -outform DER 2>/dev/null | sha256sum | awk '{print $1}')" || return 1
+  [[ -n "${certificate_public_key}" && "${certificate_public_key}" == "${private_public_key}" ]]
 }
 
 choose_install_mode() {
@@ -282,23 +334,6 @@ choose_uninstall_mode() {
   done
 }
 
-validate_certificate_content() {
-  local content="$1"
-  local content_name="$2"
-  [[ "${content}" == *"-----BEGIN CERTIFICATE-----"* && \
-     "${content}" == *"-----END CERTIFICATE-----"* ]] || die "${content_name}不是有效的 PEM 证书内容"
-}
-
-validate_private_key_content() {
-  [[ "${PROMETHEUS_TLS_KEY_CONTENT}" == *"-----BEGIN PRIVATE KEY-----"* && \
-     "${PROMETHEUS_TLS_KEY_CONTENT}" == *"-----END PRIVATE KEY-----"* ]] || \
-  [[ "${PROMETHEUS_TLS_KEY_CONTENT}" == *"-----BEGIN RSA PRIVATE KEY-----"* && \
-     "${PROMETHEUS_TLS_KEY_CONTENT}" == *"-----END RSA PRIVATE KEY-----"* ]] || \
-  [[ "${PROMETHEUS_TLS_KEY_CONTENT}" == *"-----BEGIN EC PRIVATE KEY-----"* && \
-     "${PROMETHEUS_TLS_KEY_CONTENT}" == *"-----END EC PRIVATE KEY-----"* ]] || \
-    die "服务端私钥不是支持的 PEM 私钥内容"
-}
-
 prepare_mtls_settings() {
   case "${PROMETHEUS_MTLS_ENABLED,,}" in
     1|true|yes) PROMETHEUS_MTLS_ENABLED=1 ;;
@@ -313,12 +348,30 @@ prepare_mtls_settings() {
     return
   fi
 
-  prompt_pem_content "服务端证书" PROMETHEUS_TLS_CERT_CONTENT
-  prompt_pem_content "服务端私钥" PROMETHEUS_TLS_KEY_CONTENT
-  prompt_pem_content "客户端 CA 证书" PROMETHEUS_CLIENT_CA_CONTENT
-  validate_certificate_content "${PROMETHEUS_TLS_CERT_CONTENT}" "服务端证书"
-  validate_private_key_content
-  validate_certificate_content "${PROMETHEUS_CLIENT_CA_CONTENT}" "客户端 CA 证书"
+  require_commands chown openssl touch
+  set_interactive_device
+  select_text_editor
+
+  local tls_group="root"
+  if getent group "${PROMETHEUS_GROUP}" >/dev/null 2>&1; then
+    tls_group="${PROMETHEUS_GROUP}"
+  fi
+  install -d -o root -g root -m 0755 "${CONFIG_DIR}"
+  install -d -o root -g "${tls_group}" -m 0750 "${TLS_DIR}"
+  touch "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key" "${TLS_DIR}/client-ca.crt"
+  chown root:"${tls_group}" "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key" "${TLS_DIR}/client-ca.crt"
+  chmod 0640 "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key" "${TLS_DIR}/client-ca.crt"
+
+  while true; do
+    edit_pem_file "服务端证书" "${TLS_DIR}/server.crt" certificate
+    edit_pem_file "服务端私钥" "${TLS_DIR}/server.key" private_key
+    if certificate_matches_private_key "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key"; then
+      result "服务端证书和私钥匹配"
+      break
+    fi
+    warn "服务端证书和私钥不匹配，请重新编辑"
+  done
+  edit_pem_file "客户端 CA 证书" "${TLS_DIR}/client-ca.crt" certificate
 
   WEB_CONFIG_ARGUMENT=" --web.config.file=${WEB_CONFIG_FILE}"
   WEB_SCHEME="https"
@@ -329,20 +382,11 @@ install_mtls_config() {
   [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] || return 0
 
   local temp_dir="$1"
-  local cert_tmp="${temp_dir}/mtls-server.crt"
-  local key_tmp="${temp_dir}/mtls-server.key"
-  local ca_tmp="${temp_dir}/mtls-client-ca.crt"
   local web_config_tmp="${temp_dir}/mtls-web.yml"
 
-  printf '%s' "${PROMETHEUS_TLS_CERT_CONTENT}" >"${cert_tmp}"
-  printf '%s' "${PROMETHEUS_TLS_KEY_CONTENT}" >"${key_tmp}"
-  printf '%s' "${PROMETHEUS_CLIENT_CA_CONTENT}" >"${ca_tmp}"
-  chmod 0600 "${cert_tmp}" "${key_tmp}" "${ca_tmp}"
-
   install -d -o root -g "${PROMETHEUS_GROUP}" -m 0750 "${TLS_DIR}"
-  install -o root -g "${PROMETHEUS_GROUP}" -m 0640 "${cert_tmp}" "${TLS_DIR}/server.crt"
-  install -o root -g "${PROMETHEUS_GROUP}" -m 0640 "${key_tmp}" "${TLS_DIR}/server.key"
-  install -o root -g "${PROMETHEUS_GROUP}" -m 0640 "${ca_tmp}" "${TLS_DIR}/client-ca.crt"
+  chown root:"${PROMETHEUS_GROUP}" "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key" "${TLS_DIR}/client-ca.crt"
+  chmod 0640 "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key" "${TLS_DIR}/client-ca.crt"
 
   cat >"${web_config_tmp}" <<EOF
 tls_server_config:

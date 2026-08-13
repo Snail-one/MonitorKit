@@ -46,13 +46,22 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 sudo ./install.sh mtls
 ```
 
-脚本会依次要求粘贴：
+脚本会按照 `vim → nano → vi` 的优先级自动选择已安装的编辑器，然后依次打开：
 
-1. 服务端证书 PEM 内容
-2. 服务端私钥 PEM 内容
-3. 用于验证客户端证书的 CA PEM 内容
+1. `/etc/prometheus/tls/server.crt`：服务端证书
+2. `/etc/prometheus/tls/server.key`：服务端私钥
+3. `/etc/prometheus/tls/client-ca.crt`：用于验证客户端证书的 CA
 
-每段内容粘贴完成后，需要单独输入一行 `EOF`。输入的证书和私钥内容会正常显示在终端中，便于粘贴时检查。证书和生成的 Web 配置保存在 `/etc/prometheus`，服务使用 `RequireAndVerifyClientCert` 强制校验客户端证书。启用后访问协议变为 HTTPS；抓取受 mTLS 保护的目标时，还需要在 `prometheus.yml` 中配置对应客户端证书。
+每一步都会显示文件路径和对应的 `sudo vim`、`sudo nano` 或 `sudo vi` 命令。按回车后脚本会直接打开编辑器，粘贴 PEM 内容并保存退出即可，不需要输入 `EOF`。脚本随后使用 OpenSSL 检查证书和私钥格式，并检查服务端证书与私钥是否匹配；检查失败会要求重新编辑。
+
+如果三种编辑器都没有安装，脚本会停止并提示先安装任意一个，例如 Debian/Ubuntu 可以执行：
+
+```bash
+sudo apt update
+sudo apt install vim
+```
+
+证书和生成的 Web 配置保存在 `/etc/prometheus`，服务使用 `RequireAndVerifyClientCert` 强制校验客户端证书。启用后访问协议变为 HTTPS；抓取受 mTLS 保护的目标时，还需要在 `prometheus.yml` 中配置对应客户端证书。
 
 ### 需要提供的 PEM 内容
 
