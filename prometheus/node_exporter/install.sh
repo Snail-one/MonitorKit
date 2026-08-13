@@ -38,6 +38,7 @@ INTERACTIVE_DEVICE=""
 TEXT_EDITOR=""
 PURGE_MODE=0
 SELECTED_ACTION="install"
+MAINTENANCE_ACTION="install"
 WORK_DIR=""
 
 init_colors() {
@@ -136,6 +137,8 @@ node_exporter 探针一键安装、更新与卸载脚本。
   sudo ./install.sh purge       # 直接彻底清理
 
 默认通过 GitHub Releases API 安装最新正式版本，也可以指定固定版本。
+未安装时直接安装目标版本；已安装时可选择检查更新或仅重新配置。
+仅重新配置不会访问版本 API，也不会下载安装包。
 
 可选安装环境变量：
   NODE_EXPORTER_VERSION=latest
@@ -340,6 +343,81 @@ choose_uninstall_mode() {
       *) warn "请输入 1 或 2" ;;
     esac
   done
+}
+
+choose_maintenance_action() {
+  set_interactive_device
+  printf '%s  1.%s 检查最新版本并更新\n' "${ORANGE}" "${RESET}" >&2
+  printf '%s  2.%s 仅重新配置（不访问 API、不下载安装包，默认）\n' "${GREEN}" "${RESET}" >&2
+  printf '%s  3.%s 标准卸载（保留配置、证书和账号）\n' "${YELLOW}" "${RESET}" >&2
+  printf '%s  4.%s 彻底清理（删除配置、证书和账号）\n' "${RED}" "${RESET}" >&2
+  while true; do
+    printf '%s请选择维护操作 [1-4]（默认 2）：%s' "${BLUE}" "${RESET}" >&2
+    local choice=""
+    IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取维护操作失败"
+    case "${choice}" in
+      1)
+        MAINTENANCE_ACTION="update"
+        result "已选择检查并更新"
+        return
+        ;;
+      ""|2)
+        MAINTENANCE_ACTION="reconfigure"
+        result "已选择仅重新配置"
+        return
+        ;;
+      3)
+        SELECTED_ACTION="uninstall"
+        result "已选择标准卸载"
+        return
+        ;;
+      4)
+        SELECTED_ACTION="purge"
+        warn "已选择彻底清理，mTLS 配置和证书将被永久删除"
+        return
+        ;;
+      *) warn "请输入 1、2、3 或 4" ;;
+    esac
+  done
+}
+
+choose_reconfigure_mode() {
+  [[ "${NODE_EXPORTER_MTLS_MODE_PRESET}" == "0" ]] || return 0
+  set_interactive_device
+  printf '%s  1.%s mTLS（HTTPS，强制验证客户端证书，默认）\n' "${ORANGE}" "${RESET}" >&2
+  printf '%s  2.%s 普通 HTTP\n' "${GREEN}" "${RESET}" >&2
+  while true; do
+    printf '%s请选择重新配置方式 [1-2]（默认 1：mTLS）：%s' "${BLUE}" "${RESET}" >&2
+    local choice=""
+    IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取重新配置方式失败"
+    case "${choice}" in
+      ""|1)
+        NODE_EXPORTER_MTLS_ENABLED=1
+        result "将重新配置为 mTLS 模式"
+        return
+        ;;
+      2)
+        NODE_EXPORTER_MTLS_ENABLED=0
+        result "将重新配置为普通 HTTP 模式"
+        return
+        ;;
+      *) warn "请输入 1 或 2" ;;
+    esac
+  done
+}
+
+load_existing_web_mode() {
+  if [[ -f "${SERVICE_FILE}" ]] && grep -q -- '--web.config.file=' "${SERVICE_FILE}"; then
+    NODE_EXPORTER_MTLS_ENABLED=1
+    WEB_SCHEME="https"
+    MTLS_STATUS="保持现有 mTLS 配置"
+    info "更新将保留现有服务模式：mTLS"
+  else
+    NODE_EXPORTER_MTLS_ENABLED=0
+    WEB_SCHEME="http"
+    MTLS_STATUS="保持现有 HTTP 配置"
+    info "更新将保留现有服务模式：普通 HTTP"
+  fi
 }
 
 prepare_mtls_settings() {
@@ -644,9 +722,41 @@ main() {
   require_root
   result "root 权限检查通过"
 
+  local requested_version="${NODE_EXPORTER_VERSION}"
+  local version
+  local arch
+  local current_version
+  local action
+  local archive
+  local release_url
+  local work_dir
+  local checksum
+  local extracted_dir
+  local download_required=0
+
+  require_commands sed
+  current_version="$(installed_version)"
   printf '\n'
-  step "选择操作"
-  choose_install_mode
+  step "检查安装状态"
+  if [[ -z "${current_version}" ]]; then
+    current_version="未安装"
+    MAINTENANCE_ACTION="install"
+    result "未检测到 node_exporter，将安装最新版本"
+    printf '\n'
+    step "选择安装方式"
+    choose_install_mode
+  else
+    result "检测到 node_exporter v${current_version}"
+    printf '\n'
+    step "选择维护操作"
+    choose_maintenance_action
+    if [[ "${MAINTENANCE_ACTION}" == "reconfigure" ]]; then
+      printf '\n'
+      step "选择重新配置方式"
+      choose_reconfigure_mode
+    fi
+  fi
+
   case "${SELECTED_ACTION}" in
     uninstall)
       uninstall_node_exporter keep
@@ -660,77 +770,96 @@ main() {
 
   printf '\n'
   step "检查安装依赖"
-  require_commands awk cat chmod getent groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
+  require_commands awk cat chmod getent grep groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
   result "安装依赖检查通过"
-  prepare_mtls_settings
-
-  local requested_version="${NODE_EXPORTER_VERSION}"
-  local version
-  local arch
-  local current_version
-  local action
-  local archive
-  local release_url
-  local work_dir
-  local checksum
-  local extracted_dir
 
   validate_listen_address "${NODE_EXPORTER_LISTEN_ADDRESS}"
+  if [[ "${MAINTENANCE_ACTION}" == "update" ]]; then
+    load_existing_web_mode
+  else
+    prepare_mtls_settings
+  fi
   arch="$(detect_arch)"
   work_dir="$(mktemp -d -t node-exporter-install.XXXXXXXX)"
   WORK_DIR="${work_dir}"
 
-  printf '\n'
-  step "检查发布版本"
-  if [[ "${requested_version}" == "latest" ]]; then
-    info "正在通过 GitHub Releases API 获取最新正式版本"
-    fetch_latest_version "${work_dir}/release.json"
-    version="${LATEST_VERSION}"
-    result "最新正式版本：v${version}"
+  if [[ "${MAINTENANCE_ACTION}" == "reconfigure" ]]; then
+    version="${current_version}"
+    action="重新配置"
+    info "跳过 GitHub Releases API 和安装包下载"
   else
-    version="${requested_version#v}"
-    validate_version "${version}"
-    info "使用指定版本：v${version}"
-  fi
+    printf '\n'
+    step "检查发布版本"
+    if [[ "${requested_version}" == "latest" ]]; then
+      info "正在通过 GitHub Releases API 获取最新正式版本"
+      fetch_latest_version "${work_dir}/release.json"
+      version="${LATEST_VERSION}"
+      result "最新正式版本：v${version}"
+    else
+      version="${requested_version#v}"
+      validate_version "${version}"
+      info "使用指定版本：v${version}"
+    fi
 
-  current_version="$(installed_version)"
-  current_version="${current_version:-未安装}"
-  if [[ "${current_version}" == "${version}" ]]; then
-    action="重新安装/配置"
-  elif [[ "${current_version}" == "未安装" ]]; then
-    action="安装"
-  else
-    action="更新"
+    if [[ "${current_version}" == "未安装" ]]; then
+      action="安装"
+      download_required=1
+    elif [[ "${current_version}" == "${version}" ]]; then
+      action="检查更新（已是目标版本）"
+      result "当前已是目标版本，跳过安装包下载"
+    else
+      action="更新"
+      download_required=1
+    fi
   fi
   print_release_info "${arch}" "${current_version}" "${version}" "${action}"
-  archive="node_exporter-${version}.linux-${arch}.tar.gz"
-  release_url="${DOWNLOAD_BASE_URL%/}/v${version}"
 
-  printf '\n'
-  step "下载发布文件"
-  info "正在下载：${archive}"
-  download_asset "${release_url}/${archive}" "${work_dir}/${archive}"
-  download "${release_url}/sha256sums.txt" "${work_dir}/sha256sums.txt"
-  result "发布文件下载完成"
+  if [[ "${download_required}" == "1" ]]; then
+    archive="node_exporter-${version}.linux-${arch}.tar.gz"
+    release_url="${DOWNLOAD_BASE_URL%/}/v${version}"
 
-  printf '\n'
-  step "校验发布文件"
-  checksum="$(awk -v file="${archive}" '$2 == file || $2 == ("*" file) { print $1; exit }' "${work_dir}/sha256sums.txt")"
-  [[ "${checksum}" =~ ^[0-9a-fA-F]{64}$ ]] || die "校验文件中没有 ${archive} 的有效校验值"
-  printf '%s  %s\n' "${checksum}" "${work_dir}/${archive}" | sha256sum --check --status || die "安装包 SHA-256 校验失败"
-  result "SHA-256 校验通过"
+    printf '\n'
+    step "下载发布文件"
+    info "正在下载：${archive}"
+    download_asset "${release_url}/${archive}" "${work_dir}/${archive}"
+    download "${release_url}/sha256sums.txt" "${work_dir}/sha256sums.txt"
+    result "发布文件下载完成"
 
-  printf '\n'
-  step "安装 node_exporter"
-  tar -xzf "${work_dir}/${archive}" -C "${work_dir}"
-  extracted_dir="${work_dir}/node_exporter-${version}.linux-${arch}"
-  [[ -x "${extracted_dir}/node_exporter" ]] || die "发布包中缺少 node_exporter 程序"
+    printf '\n'
+    step "校验发布文件"
+    checksum="$(awk -v file="${archive}" '$2 == file || $2 == ("*" file) { print $1; exit }' "${work_dir}/sha256sums.txt")"
+    [[ "${checksum}" =~ ^[0-9a-fA-F]{64}$ ]] || die "校验文件中没有 ${archive} 的有效校验值"
+    printf '%s  %s\n' "${checksum}" "${work_dir}/${archive}" | sha256sum --check --status || die "安装包 SHA-256 校验失败"
+    result "SHA-256 校验通过"
+
+    printf '\n'
+    step "安装 node_exporter"
+    tar -xzf "${work_dir}/${archive}" -C "${work_dir}"
+    extracted_dir="${work_dir}/node_exporter-${version}.linux-${arch}"
+    [[ -x "${extracted_dir}/node_exporter" ]] || die "发布包中缺少 node_exporter 程序"
+  elif [[ "${MAINTENANCE_ACTION}" == "reconfigure" ]]; then
+    printf '\n'
+    step "重新配置 node_exporter"
+    [[ -x "${BIN_DIR}/node_exporter" ]] || die "现有安装缺少 node_exporter，无法仅重新配置，请重新运行并选择更新"
+  else
+    printf '\n'
+    step "保留当前程序和配置"
+    [[ -x "${BIN_DIR}/node_exporter" ]] || die "现有安装缺少 node_exporter，请重新运行并选择更新"
+    result "无需替换程序文件"
+  fi
 
   create_service_account
-  install -m 0755 "${extracted_dir}/node_exporter" "${BIN_DIR}/node_exporter"
-  install_mtls_config "${work_dir}"
-  write_service_file
-  result "程序和服务配置安装完成"
+  if [[ "${download_required}" == "1" ]]; then
+    install -m 0755 "${extracted_dir}/node_exporter" "${BIN_DIR}/node_exporter"
+  fi
+  if [[ "${MAINTENANCE_ACTION}" != "update" ]]; then
+    install_mtls_config "${work_dir}"
+    write_service_file
+    result "程序和服务配置处理完成"
+  else
+    info "保留现有 systemd 服务配置：${SERVICE_FILE}"
+    result "程序更新检查完成，现有配置保持不变"
+  fi
 
   printf '\n'
   step "启动系统服务"
