@@ -18,7 +18,7 @@ Snailbash 是一个常用 Linux 服务与运维工具的一键安装脚本集合
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/prometheus/install.sh | sudo bash
 ```
 
-运行后可选择普通 HTTP 或 mTLS 安装方式。
+运行后可选择 HTTP 安装、mTLS 安装、标准卸载或彻底清理。
 
 详细说明：[prometheus/prometheus/README.md](prometheus/prometheus/README.md)
 
@@ -34,6 +34,12 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/prometheus/install.sh | sudo bash -s -- uninstall
 ```
 
+卸载时可选择保留数据或彻底清理；直接彻底清理使用：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/prometheus/install.sh | sudo bash -s -- purge
+```
+
 ### node_exporter
 
 一键安装 Prometheus 主机监控探针：
@@ -42,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/node_exporter/install.sh | sudo bash
 ```
 
-运行后可选择普通 HTTP 或 mTLS 安装方式。
+运行后可选择 HTTP 安装、mTLS 安装、标准卸载或彻底清理。
 
 详细说明：[prometheus/node_exporter/README.md](prometheus/node_exporter/README.md)
 
@@ -56,6 +62,12 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/node_exporter/install.sh | sudo bash -s -- uninstall
+```
+
+卸载时可选择保留配置或彻底清理；直接彻底清理使用：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/node_exporter/install.sh | sudo bash -s -- purge
 ```
 
 ## 目录结构

@@ -39,6 +39,9 @@ WEB_CONFIG_ARGUMENT=""
 WEB_SCHEME="http"
 MTLS_STATUS="关闭"
 INTERACTIVE_DEVICE=""
+PURGE_MODE=0
+SELECTED_ACTION="install"
+WORK_DIR=""
 
 init_colors() {
   if [[ -n "${NO_COLOR+x}" ]]; then
@@ -117,6 +120,13 @@ die() {
   exit 1
 }
 
+cleanup() {
+  if [[ -n "${WORK_DIR}" ]]; then
+    rm -rf -- "${WORK_DIR}"
+    WORK_DIR=""
+  fi
+}
+
 usage() {
   cat <<'EOF'
 Prometheus 一键安装、更新与卸载脚本。
@@ -125,7 +135,8 @@ Prometheus 一键安装、更新与卸载脚本。
   sudo ./install.sh             # 交互选择 HTTP 或 mTLS
   sudo ./install.sh http        # 直接安装 HTTP 模式
   sudo ./install.sh mtls
-  sudo ./install.sh uninstall
+  sudo ./install.sh uninstall   # 交互选择标准卸载或彻底清理
+  sudo ./install.sh purge       # 直接彻底清理
 
 默认通过 GitHub Releases API 安装最新正式版本，也可以指定固定版本。
 
@@ -212,13 +223,15 @@ prompt_pem_content() {
 }
 
 choose_install_mode() {
-  [[ "${PROMETHEUS_MTLS_MODE_PRESET}" == "0" ]] || return
+  [[ "${PROMETHEUS_MTLS_MODE_PRESET}" == "0" ]] || return 0
   set_interactive_device
 
-  printf '%s  1.%s 普通 HTTP\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  2.%s mTLS（HTTPS，强制验证客户端证书）\n' "${ORANGE}" "${RESET}" >&2
+  printf '%s  1.%s 安装/更新：普通 HTTP\n' "${GREEN}" "${RESET}" >&2
+  printf '%s  2.%s 安装/更新：mTLS（HTTPS，强制验证客户端证书）\n' "${ORANGE}" "${RESET}" >&2
+  printf '%s  3.%s 标准卸载（保留配置、证书、数据和账号）\n' "${YELLOW}" "${RESET}" >&2
+  printf '%s  4.%s 彻底清理（删除配置、证书、数据和账号）\n' "${RED}" "${RESET}" >&2
   while true; do
-    printf '%s请选择安装方式 [1-2]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
+    printf '%s请选择操作 [1-4]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
     IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取安装方式失败"
     case "${choice}" in
@@ -230,6 +243,40 @@ choose_install_mode() {
       2)
         PROMETHEUS_MTLS_ENABLED=1
         result "已选择 mTLS 模式"
+        return
+        ;;
+      3)
+        SELECTED_ACTION="uninstall"
+        result "已选择标准卸载"
+        return
+        ;;
+      4)
+        SELECTED_ACTION="purge"
+        warn "已选择彻底清理，历史监控数据将被永久删除"
+        return
+        ;;
+      *) warn "请输入 1、2、3 或 4" ;;
+    esac
+  done
+}
+
+choose_uninstall_mode() {
+  set_interactive_device
+  printf '%s  1.%s 标准卸载（保留配置、证书、数据和账号）\n' "${GREEN}" "${RESET}" >&2
+  printf '%s  2.%s 彻底清理（删除全部配置、证书、数据和账号）\n' "${RED}" "${RESET}" >&2
+  while true; do
+    printf '%s请选择卸载方式 [1-2]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
+    local choice=""
+    IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取卸载方式失败"
+    case "${choice}" in
+      ""|1)
+        PURGE_MODE=0
+        result "已选择标准卸载"
+        return
+        ;;
+      2)
+        PURGE_MODE=1
+        warn "已选择彻底清理，历史监控数据将被永久删除"
         return
         ;;
       *) warn "请输入 1 或 2" ;;
@@ -281,7 +328,7 @@ prepare_mtls_settings() {
 }
 
 install_mtls_config() {
-  [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] || return
+  [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] || return 0
 
   local temp_dir="$1"
   local cert_tmp="${temp_dir}/mtls-server.crt"
@@ -416,7 +463,12 @@ main() {
       ;;
     uninstall|--uninstall|-u)
       [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
-      uninstall_prometheus
+      uninstall_prometheus ask
+      exit 0
+      ;;
+    purge|--purge)
+      [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
+      uninstall_prometheus purge
       exit 0
       ;;
     install|--install|-i)
@@ -437,15 +489,29 @@ main() {
       ;;
   esac
 
-  print_banner "一键安装与更新"
-  step "检查运行环境"
+  print_banner "一键安装、更新与卸载"
+  step "检查运行权限"
   require_root
-  require_commands awk cat chmod chown cp getent groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
-  result "运行环境检查通过"
+  result "root 权限检查通过"
 
   printf '\n'
-  step "选择安装方式"
+  step "选择操作"
   choose_install_mode
+  case "${SELECTED_ACTION}" in
+    uninstall)
+      uninstall_prometheus keep
+      exit 0
+      ;;
+    purge)
+      uninstall_prometheus purge
+      exit 0
+      ;;
+  esac
+
+  printf '\n'
+  step "检查安装依赖"
+  require_commands awk cat chmod chown cp getent groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
+  result "安装依赖检查通过"
   prepare_mtls_settings
 
   local requested_version="${PROMETHEUS_VERSION}"
@@ -462,7 +528,7 @@ main() {
   validate_listen_address "${PROMETHEUS_LISTEN_ADDRESS}"
   arch="$(detect_arch)"
   work_dir="$(mktemp -d -t prometheus-install.XXXXXXXX)"
-  trap 'rm -rf -- "${work_dir}"' EXIT
+  WORK_DIR="${work_dir}"
 
   printf '\n'
   step "检查发布版本"
@@ -555,8 +621,8 @@ main() {
     warn "受 mTLS 保护的抓取目标必须在 prometheus.yml 中配置 HTTPS 和客户端证书"
   fi
 
-  trap - EXIT
   rm -rf -- "${work_dir}"
+  WORK_DIR=""
   print_completion_card "${action}" "${version}"
 }
 
@@ -616,16 +682,31 @@ EOF
 }
 
 uninstall_prometheus() {
+  local uninstall_mode="${1:-ask}"
   local current_version
 
   print_banner "一键卸载"
   step "检查安装状态"
   require_root
-  require_commands sed systemctl
+  require_commands getent groupdel id sed systemctl userdel
 
   current_version="$(installed_version)"
   info "当前版本：${current_version:-未知或未安装}"
   info "程序路径：${BIN_DIR}/prometheus"
+
+  printf '\n'
+  step "选择卸载方式"
+  case "${uninstall_mode}" in
+    purge)
+      PURGE_MODE=1
+      warn "将彻底删除配置、mTLS 证书、监控数据和系统账号"
+      ;;
+    keep)
+      PURGE_MODE=0
+      info "将保留配置、mTLS 证书、监控数据和系统账号"
+      ;;
+    *) choose_uninstall_mode ;;
+  esac
 
   printf '\n'
   step "停止 Prometheus 服务"
@@ -643,10 +724,27 @@ uninstall_prometheus() {
   systemctl reset-failed prometheus.service >/dev/null 2>&1 || true
 
   result "Prometheus 服务和程序文件已删除"
-  info "配置已保留：${CONFIG_DIR}"
-  info "监控数据已保留：${DATA_DIR}"
-  print_result_card "Prometheus 卸载完成"
+  if [[ "${PURGE_MODE}" == "1" ]]; then
+    printf '\n'
+    step "彻底清理配置、证书、数据和账号"
+    rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"
+    if id "${PROMETHEUS_USER}" >/dev/null 2>&1; then
+      userdel "${PROMETHEUS_USER}"
+    fi
+    if getent group "${PROMETHEUS_GROUP}" >/dev/null; then
+      groupdel "${PROMETHEUS_GROUP}"
+    fi
+    result "配置、mTLS 证书、监控数据和系统账号已删除"
+    warn "历史监控数据已永久删除，无法通过脚本恢复"
+    print_result_card "Prometheus 彻底清理完成"
+  else
+    info "配置和 mTLS 证书已保留：${CONFIG_DIR}"
+    info "监控数据已保留：${DATA_DIR}"
+    info "系统账号已保留：${PROMETHEUS_USER}"
+    print_result_card "Prometheus 标准卸载完成"
+  fi
 }
 
+trap cleanup EXIT
 init_colors
 main "$@"

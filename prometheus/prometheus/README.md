@@ -8,7 +8,7 @@
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/prometheus/install.sh | sudo bash
 ```
 
-运行后可选择普通 HTTP 或 mTLS 安装方式。
+运行后可选择 HTTP 安装、mTLS 安装、标准卸载或彻底清理。
 
 ## 本地安装
 
@@ -54,6 +54,55 @@ sudo ./install.sh mtls
 
 每段内容粘贴完成后，需要单独输入一行 `EOF`。私钥输入不会在终端回显。证书和生成的 Web 配置保存在 `/etc/prometheus`，服务使用 `RequireAndVerifyClientCert` 强制校验客户端证书。启用后访问协议变为 HTTPS；抓取受 mTLS 保护的目标时，还需要在 `prometheus.yml` 中配置对应客户端证书。
 
+### 需要提供的 PEM 内容
+
+| 内容 | 要求 |
+| --- | --- |
+| 服务端证书 | PEM 格式，访问域名或 IP 应包含在证书 SAN 中，可包含完整证书链 |
+| 服务端私钥 | 与服务端证书匹配的未加密 PEM 私钥 |
+| 客户端 CA | 用于签发和验证客户端证书的 CA，可包含 CA 证书链 |
+
+### 安装后的文件位置
+
+| 文件 | 路径 | 权限 |
+| --- | --- | --- |
+| 服务端证书 | `/etc/prometheus/tls/server.crt` | `root:prometheus 0640` |
+| 服务端私钥 | `/etc/prometheus/tls/server.key` | `root:prometheus 0640` |
+| 客户端 CA | `/etc/prometheus/tls/client-ca.crt` | `root:prometheus 0640` |
+| mTLS Web 配置 | `/etc/prometheus/web.yml` | `root:prometheus 0640` |
+| Prometheus 配置 | `/etc/prometheus/prometheus.yml` | `root:prometheus 0640` |
+| systemd 服务 | `/etc/systemd/system/prometheus.service` | `root:root 0644` |
+| 监控数据 | `/var/lib/prometheus` | `prometheus:prometheus 0750` |
+
+客户端访问 Prometheus Web UI 或 API 时，还需要客户端证书、客户端私钥和用于验证 Prometheus 服务端证书的 CA。客户端证书必须由上述 `client-ca.crt` 所信任。
+
+### 抓取 mTLS node_exporter
+
+如果 node_exporter 也启用了 mTLS，需要在 Prometheus 主机准备以下客户端文件（这些文件不会由当前脚本自动创建）：
+
+```text
+/etc/prometheus/client/node-server-ca.crt
+/etc/prometheus/client/prometheus-client.crt
+/etc/prometheus/client/prometheus-client.key
+```
+
+然后修改 `/etc/prometheus/prometheus.yml`：
+
+```yaml
+scrape_configs:
+  - job_name: node
+    scheme: https
+    static_configs:
+      - targets: ["node.example.com:9100"]
+    tls_config:
+      ca_file: /etc/prometheus/client/node-server-ca.crt
+      cert_file: /etc/prometheus/client/prometheus-client.crt
+      key_file: /etc/prometheus/client/prometheus-client.key
+      server_name: node.example.com
+```
+
+`prometheus-client.crt` 必须由 node_exporter 配置的客户端 CA 签发或信任，`server_name` 必须与 node_exporter 服务端证书的 SAN 匹配。
+
 ## 卸载
 
 在线卸载：
@@ -62,12 +111,29 @@ sudo ./install.sh mtls
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/prometheus/install.sh | sudo bash -s -- uninstall
 ```
 
+运行后可以选择：
+
+1. 标准卸载：删除服务和程序，保留配置、mTLS 证书、监控数据及系统账号。
+2. 彻底清理：删除服务、程序、配置、mTLS 证书、监控数据及系统账号。
+
 本地卸载：
 
 ```bash
 sudo ./install.sh uninstall
 ```
 
-卸载命令会停止服务，并删除 Prometheus 服务文件、`prometheus` 和 `promtool` 程序。配置目录 `/etc/prometheus`、mTLS 证书副本、数据目录 `/var/lib/prometheus` 及服务账号会被保留，方便以后恢复或重新安装。
+自动化环境可以直接执行彻底清理：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/prometheus/prometheus/install.sh | sudo bash -s -- purge
+```
+
+本地直接彻底清理：
+
+```bash
+sudo ./install.sh purge
+```
+
+彻底清理会永久删除 `/etc/prometheus` 和 `/var/lib/prometheus`，历史监控数据无法通过脚本恢复。
 
 脚本会在终端中显示彩色步骤和结果提示。设置 `NO_COLOR=1` 可关闭颜色，设置 `FORCE_COLOR=1` 可强制开启颜色。
