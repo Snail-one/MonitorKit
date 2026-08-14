@@ -105,17 +105,17 @@ sudo monitorkit uninstall loki --purge
 
 ## 安装探针
 
-node_exporter 指标探针：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/node_exporter/install.sh | sudo bash
-```
-
 Grafana Alloy 指标与日志统一探针：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | \
   sudo bash
+```
+
+node_exporter 指标探针：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/node_exporter/install.sh | sudo bash
 ```
 
 脚本会先要求填写唯一的监控节点名称，再分别询问 Prometheus、Loki 是否启用 mTLS，首次配置均默认推荐启用。两者都启用 mTLS 时，可选择录入一套共享证书或分别配置；共享模式只录入一次 CA、完整客户端证书和私钥，校验后仍分别写入 `prometheus-*` 与 `loki-*` 受管文件，两个服务的地址和 `server_name` 始终分别设置。指标统一写入 `job="alloy-one"`，节点名称会同时写入指标的 `instance`、`host` 标签和日志的 `host` 标签。journal 日志还会带上 `unit`（systemd 服务名）和 `ident`，Grafana 可按主机或服务筛选。系统指标原生提供的 `nodename` 保持真实主机名，不会被脚本覆盖。启用 mTLS 时，裸 `IP:端口` 自动补为 `https://` 并填写客户端证书；选择不启用时会先警告明文传输风险，再次确认后裸地址才补为 `http://`。通过管道执行时会从 `/dev/tty` 读取输入，不会与下载脚本使用的标准输入冲突。
