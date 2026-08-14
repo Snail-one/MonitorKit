@@ -63,7 +63,6 @@ func (a *App) Run(ctx context.Context) error {
 		a.ui.Option("1", componentViews["prometheus"].label, a.statusBadge(statuses["prometheus"]))
 		a.ui.Option("2", componentViews["loki"].label, a.statusBadge(statuses["loki"]))
 		a.ui.Option("3", "探针接入", a.ui.Badge("Shell", true))
-		a.ui.Option("4", "管理接口", a.ui.Badge("HTTP API", true))
 		a.ui.ExitOption("退出")
 		a.ui.Blank()
 
@@ -86,8 +85,6 @@ func (a *App) Run(ctx context.Context) error {
 			if err := a.probeMenu(); err != nil {
 				return err
 			}
-		case "4":
-			a.apiInfo()
 		default:
 			a.ui.InvalidChoice()
 			a.ui.Pause()
@@ -474,24 +471,6 @@ func (a *App) probeMenu() error {
 			a.ui.Pause()
 		}
 	}
-}
-
-func (a *App) apiInfo() {
-	listen := valueOr(os.Getenv("MONITORKIT_LISTEN"), "127.0.0.1:8088")
-	auth := "仅本机访问，可不配置 Token"
-	if os.Getenv("MONITORKIT_TOKEN") != "" {
-		auth = "Bearer Token 已配置"
-	}
-	a.ui.Clear()
-	a.ui.Title("管理接口")
-	a.ui.Card(ui.Neutral, "自动化管理入口",
-		ui.Field{Label: "启动命令", Value: "sudo monitorkit serve"},
-		ui.Field{Label: "监听地址", Value: listen},
-		ui.Field{Label: "访问控制", Value: auth},
-		ui.Field{Label: "组件接口", Value: "/api/v1/components"},
-		ui.Field{Label: "健康检查", Value: "/healthz"},
-	)
-	a.ui.Pause()
 }
 
 func (a *App) statuses(ctx context.Context) (map[string]manager.Status, error) {

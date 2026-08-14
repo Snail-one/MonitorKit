@@ -42,18 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 
 - Prometheus 与 Loki 的服务、二进制、配置、数据和系统账号；
 - 任意被监控服务器上的 node_exporter 或 Alloy；
-- 手动部署的 `monitorkit.service`、API 环境变量文件及启用链接；
 - GitHub 下载缓存以外的任何用户文件。
-
-仓库中的 `deploy/systemd/monitorkit.service` 和 `configs/monitorkit.env.example` 只是部署模板，在线安装器不会自动复制它们。如果管理员手动部署 API 服务，通常会另外产生：
-
-```text
-/etc/systemd/system/monitorkit.service
-/etc/systemd/system/multi-user.target.wants/monitorkit.service
-/etc/monitorkit/monitorkit.env
-```
-
-这些手动部署文件不属于自身卸载脚本的删除范围，需要管理员自行停止服务并按实际部署路径处理。
 
 ## Prometheus 中心组件
 

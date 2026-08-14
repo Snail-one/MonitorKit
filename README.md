@@ -11,10 +11,7 @@ MonitorKit/
 ├── internal/
 │   ├── app/                       # 交互菜单与业务流程编排
 │   ├── manager/                   # 组件注册、下载、校验、安装与 systemd 管理
-│   ├── server/                    # HTTP API、鉴权和响应模型
 │   └── ui/                        # 终端视觉组件与操作反馈
-├── configs/                       # 配置示例
-├── deploy/systemd/                # 中心端 systemd unit
 ├── scripts/
 │   ├── install.sh                 # 在线安装、更新和卸载
 │   ├── build_linux.sh             # Linux 发布构建
@@ -48,7 +45,7 @@ VERSION=v1.0.0 GOARCH=amd64 ./scripts/build_linux.sh
 sudo monitorkit
 ```
 
-交互界面提供中心组件状态总览、Prometheus/Loki 独立管理、探针接入命令和 HTTP API 信息。终端支持颜色时会显示状态徽标和动态操作反馈；设置 `NO_COLOR=1` 可关闭颜色。
+交互界面提供中心组件状态总览、Prometheus/Loki 独立管理和探针接入命令。终端支持颜色时会显示状态徽标和动态操作反馈；设置 `NO_COLOR=1` 可关闭颜色。
 
 ## 在线安装、更新与卸载
 
@@ -105,44 +102,6 @@ sudo monitorkit uninstall loki --purge
 
 已有配置在更新时会保留，发布包必须通过 SHA-256 校验才会安装。
 频繁查询 GitHub Release 时可设置可选的 `GITHUB_TOKEN` 以提高 API 请求限额。
-
-## 运行管理 API
-
-API 默认仅监听本机：
-
-```bash
-sudo monitorkit serve
-```
-
-需要监听其他网卡时必须配置 Token：
-
-```bash
-sudo MONITORKIT_LISTEN=0.0.0.0:8088 \
-  MONITORKIT_TOKEN="$(openssl rand -hex 32)" \
-  monitorkit serve
-```
-
-可将 [systemd unit](deploy/systemd/monitorkit.service) 安装到 `/etc/systemd/system/monitorkit.service`，并参考 [环境变量示例](configs/monitorkit.env.example) 创建 `/etc/monitorkit/monitorkit.env`。
-
-主要接口：
-
-```text
-GET    /healthz
-GET    /api/v1/components
-GET    /api/v1/components/{name}
-POST   /api/v1/components/{name}/install
-DELETE /api/v1/components/{name}?purge=true
-```
-
-安装请求示例：
-
-```bash
-curl -X POST http://127.0.0.1:8088/api/v1/components/prometheus/install \
-  -H 'Content-Type: application/json' \
-  -d '{"version":"latest"}'
-```
-
-配置了 Token 时增加 `Authorization: Bearer <token>` 请求头。API 只接受注册组件和预定义动作，不提供任意命令执行能力。
 
 ## 安装探针
 

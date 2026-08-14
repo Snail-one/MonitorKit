@@ -5,17 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
-	"time"
 
 	"github.com/Snail-one/MonitorKit/internal/app"
 	"github.com/Snail-one/MonitorKit/internal/manager"
 	"github.com/Snail-one/MonitorKit/internal/selfupdate"
-	api "github.com/Snail-one/MonitorKit/internal/server"
 	"github.com/Snail-one/MonitorKit/internal/ui"
 	"github.com/Snail-one/MonitorKit/internal/version"
 )
@@ -30,12 +25,9 @@ const usage = `MonitorKit 中心端管理程序
   monitorkit install <prometheus|loki> [--version latest]
   monitorkit uninstall <prometheus|loki> [--purge]
   monitorkit status [prometheus|loki]
-  monitorkit serve [--listen 127.0.0.1:8088] [--token TOKEN]
 
 环境变量：
   MONITORKIT_ROOT    安装根目录，默认 /（主要用于测试或离线打包）
-  MONITORKIT_LISTEN  API 监听地址
-  MONITORKIT_TOKEN   API Bearer Token
   GITHUB_TOKEN       可选，提升 GitHub API 请求限额
 `
 
@@ -126,17 +118,6 @@ func run(args []string) error {
 			fmt.Printf("%-10s installed=%-5t service=%s version=%s\n", status.Name, status.Installed, status.ServiceState, status.Version)
 		}
 		return nil
-	case "serve":
-		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-		listen := fs.String("listen", envOr("MONITORKIT_LISTEN", "127.0.0.1:8088"), "API 监听地址")
-		token := fs.String("token", os.Getenv("MONITORKIT_TOKEN"), "Bearer Token")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		if fs.NArg() != 0 {
-			return fmt.Errorf("serve 不接受位置参数")
-		}
-		return serve(mgr, *listen, *token)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil
@@ -150,35 +131,6 @@ func componentArg(args []string) (string, []string, error) {
 		return "", nil, fmt.Errorf("缺少组件名（prometheus 或 loki）")
 	}
 	return args[0], args[1:], nil
-}
-
-func serve(mgr *manager.Manager, listen, token string) error {
-	handler, err := api.New(mgr, token, listen)
-	if err != nil {
-		return err
-	}
-	server := &http.Server{
-		Addr:              listen,
-		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = server.Shutdown(shutdownCtx)
-	}()
-
-	slog.Info("MonitorKit API 已启动", "listen", listen)
-	err = server.ListenAndServe()
-	if err == http.ErrServerClosed {
-		return nil
-	}
-	return err
 }
 
 func envOr(name, fallback string) string {
