@@ -120,7 +120,26 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/p
 
 脚本会交互询问 Prometheus、Loki 根地址（包含中心界面显示的随机端口）和客户端证书。Prometheus 远程写入强制使用 mTLS；Loki 的 mTLS 可选。通过管道执行时会从 `/dev/tty` 读取输入，不会与下载脚本使用的标准输入冲突。
 
+Alloy 已安装时，再次运行同一命令会进入维护菜单，可选择更新软件包、仅重新配置、查看状态、普通卸载或彻底清理。交互配置会按 `vim → nano → vi` 自动选择编辑器，直接填写 `/etc/alloy/tls/` 中的受管 PEM 文件；配置和服务启动失败会恢复操作前的配置与证书，不保留无效副本。
+
+也可以直接执行维护动作：
+
+```bash
+sudo bash scripts/probes/alloy/install.sh reconfigure
+sudo bash scripts/probes/alloy/install.sh status
+sudo bash scripts/probes/alloy/install.sh uninstall
+sudo bash scripts/probes/alloy/install.sh purge
+```
+
 两种探针按项目需求二选一：只需要主机指标时安装 node_exporter；同时需要指标和日志时安装 Alloy。Alloy 已内置 Unix 主机指标采集，同一服务器不应再重复安装 node_exporter。
+
+“探针接入”菜单提供两个中心端操作：
+
+- “添加探针”可以添加其他服务器上的 node_exporter。填写名称、IP/域名、端口和 HTTP/mTLS 连接方式后，MonitorKit 会在 `prometheus.yml` 的受管区域生成独立 scrape job，使用 `promtool` 校验并 reload。mTLS 模式还会逐个编辑和校验 node_exporter 服务端 CA、Prometheus 客户端证书及私钥。
+- “管理当前探针”读取 `/etc/prometheus/probes/inventory.json`，可以修改目标名称、地址、端口和 TLS server_name，启停抓取、更新 mTLS 证书或删除接入配置。删除只停止 Prometheus 抓取，不会远程卸载 node_exporter。
+- Alloy 主动推送，不加入 Prometheus 抓取目标清单。Alloy 安装卡片会直接显示当前 Prometheus、Loki 根地址、随机监听端口和接收状态，脚本交互时可照此填写。
+
+Prometheus 生成的 node_exporter mTLS 抓取配置使用官方 [`scrape_config`](https://prometheus.io/docs/prometheus/latest/configuration/configuration/) 的 `static_configs` 和 `tls_config`（`ca_file`、`cert_file`、`key_file`、`server_name`）。每个 mTLS 探针独立保存证书，允许不同服务器使用不同 CA 或 server_name。
 
 ## 中心组件配置管理
 
@@ -150,13 +169,13 @@ Prometheus 和 Loki 的管理菜单均提供“配置管理”：
 Prometheus 还会生成 `/etc/prometheus/web.yml`。证书和私钥会通过 OpenSSL 检查格式与匹配关系，服务配置通过校验后才会重启。
 启用 mTLS 后，该端口上的 Web UI、查询 API 和健康检查都会要求受信任的客户端证书；`/api/v1/write` 只有再打开“远程写入”独立开关后才存在。
 
-Alloy 安装时，Prometheus 必须填写以下 mTLS 信息；Loki 只有选择启用 mTLS 时才填写：
+Alloy 安装时，Prometheus 必须填写以下 mTLS 信息；Loki 只有选择启用 mTLS 时才填写。交互模式直接编辑受管路径，无需先把证书放到其他临时路径：
 
 ```text
 中心 HTTPS 根地址
-服务端 CA 证书路径
-Alloy 客户端证书路径
-Alloy 客户端私钥路径
+服务端 CA 证书内容
+Alloy 客户端证书内容
+Alloy 客户端私钥内容
 证书中的 TLS server_name
 ```
 

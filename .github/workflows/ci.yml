@@ -32,7 +32,9 @@ jobs:
         run: bash -n scripts/*.sh scripts/probes/*/install.sh
 
       - name: Installer integration test
-        run: bash scripts/test_installer.sh
+        run: |
+          bash scripts/test_installer.sh
+          bash scripts/test_alloy_installer.sh
 
       - name: Build
         env:

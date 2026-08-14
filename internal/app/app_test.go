@@ -79,3 +79,86 @@ func TestSelectTextEditorUsesSupportedPriority(t *testing.T) {
 		t.Fatalf("selected editor = %q, want nano before vi", editor)
 	}
 }
+
+func TestAlloyAccessCardShowsCurrentCenterPorts(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	for _, path := range []string{
+		"usr/local/bin/prometheus",
+		"usr/local/bin/loki",
+		"etc/prometheus/tls/mtls.enabled",
+		"etc/prometheus/remote-write.enabled",
+		"etc/loki/tls/mtls.enabled",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte("enabled\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, port := range map[string]string{
+		"etc/prometheus/listen.port": "24567\n",
+		"etc/loki/listen.port":       "31876\n",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(port), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("\n"), &output))
+	application.showAlloyAccessCard(context.Background())
+	got := output.String()
+	for _, want := range []string{"https://服务器地址:24567", "当前监听端口：24567", "https://服务器地址:31876", "当前监听端口：31876", "已就绪（mTLS + 远程写入）"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Alloy access card does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestProbeMenuSeparatesAddAndManagedConfigurations(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	mgr, err := manager.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &output))
+	if err := application.probeMenu(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"添加探针", "管理当前探针", "Prometheus 主动抓取", "主动向 Prometheus/Loki 推送"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("probe menu does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestAddProbeMenuListsAlloyBeforeNodeExporter(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	mgr, err := manager.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &output))
+	if err := application.addProbeMenu(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	alloy := strings.Index(got, "配置 Grafana Alloy")
+	nodeExporter := strings.Index(got, "添加 node_exporter 接入")
+	if alloy < 0 || nodeExporter < 0 || alloy > nodeExporter {
+		t.Fatalf("Alloy is not listed before node_exporter:\n%s", got)
+	}
+}

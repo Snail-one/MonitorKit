@@ -16,3 +16,4 @@ check: test vet
 	bash -n scripts/probes/node_exporter/install.sh
 	bash -n scripts/probes/alloy/install.sh
 	bash scripts/test_installer.sh
+	bash scripts/test_alloy_installer.sh

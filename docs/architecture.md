@@ -16,6 +16,8 @@ docs/                         架构和运维文档
 
 `internal/app` 只负责编排交互流程，`internal/ui` 不依赖监控业务。组件元数据统一注册在 `internal/manager/spec.go`，下载、SHA-256 校验、压缩包处理以及安全配置编辑是公共能力。
 
+node_exporter 使用 Prometheus 拉取模型：中心端探针清单保存在 `/etc/prometheus/probes/inventory.json`，每个启用目标渲染为独立的受管 `scrape_config`，因此可以为每台服务器设置不同地址、端口和 mTLS 文件。Alloy 使用主动推送模型，不生成抓取目标；界面读取 Prometheus/Loki 当前端口和安全状态作为安装参数提示。
+
 配置编辑通过受限的 `vim → nano → vi` 编辑器选择进入：Manager 在编辑期间保存原内容，编辑后调用组件自己的校验器，并在校验成功后 reload/restart。失败修改即时清理，活动配置自动回滚。mTLS 与 Prometheus 远程写入分别使用受管状态标记生成组件 unit，因此二进制更新不会丢失独立开关状态；远程写入只有在 mTLS 开启时才允许启用。
 
 ## 扩展中心组件
