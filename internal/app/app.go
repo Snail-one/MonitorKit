@@ -120,15 +120,14 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 		fields = append(fields, ui.Field{Label: "传输安全", Value: transport})
 		a.ui.Card(ui.Neutral, component.description, fields...)
 		a.ui.Blank()
-		a.ui.Option("1", "安装或更新", a.ui.Badge("最新稳定版", true))
-		a.ui.Option("2", "安装指定版本", "")
-		configBadge := a.ui.Badge("先安装", false)
+		configBadge := a.ui.Badge("请先安装", false)
 		if status.Installed {
 			configBadge = a.ui.Badge("编辑/校验/mTLS", true)
 		}
-		a.ui.Option("3", "配置管理", configBadge)
-		a.ui.Option("4", "卸载程序", a.ui.Badge("保留数据", true))
-		a.ui.Option("5", "彻底清理", a.ui.Badge("删除数据", false))
+		a.ui.Option("1", "配置管理", configBadge)
+		a.ui.Option("2", "安装或更新", a.ui.Badge("最新/指定版本", true))
+		a.ui.Option("3", "卸载程序", a.ui.Badge("保留数据", true))
+		a.ui.Option("4", "彻底清理", a.ui.Badge("删除数据", false))
 		a.ui.ExitOption("返回总览")
 		a.ui.Blank()
 
@@ -140,33 +139,66 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 		case "0", "q", "exit":
 			return nil
 		case "1":
-			a.install(ctx, component, "latest")
-		case "2":
-			version, err := a.ui.Ask("输入版本号，例如 1.2.3")
-			if err != nil {
-				return err
-			}
-			if version == "" {
-				a.ui.InvalidChoice()
-				a.ui.Pause()
-				continue
-			}
-			a.install(ctx, component, version)
-		case "3":
 			if !status.Installed {
-				a.ui.Card(ui.Warning, component.label+"尚未安装",
-					ui.Field{Label: "下一步", Value: "请先选择安装或更新，再进入配置管理"},
-				)
-				a.ui.Pause()
+				a.unavailableConfigAction(component)
 				continue
 			}
 			if err := a.configurationMenu(ctx, component); err != nil {
 				return err
 			}
-		case "4":
+		case "2":
+			if err := a.installVersionMenu(ctx, component); err != nil {
+				return err
+			}
+		case "3":
 			a.uninstall(ctx, component, false)
-		case "5":
+		case "4":
 			a.uninstall(ctx, component, true)
+		default:
+			a.ui.InvalidChoice()
+			a.ui.Pause()
+		}
+	}
+}
+
+func (a *App) installVersionMenu(ctx context.Context, component componentView) error {
+	for {
+		a.ui.Clear()
+		a.ui.Title(component.label, "配置管理", "安装或更新")
+		a.ui.Card(ui.Neutral, "选择目标版本",
+			ui.Field{Label: "最新稳定版", Value: "自动查询 GitHub Release 的最新正式版本"},
+			ui.Field{Label: "指定版本", Value: "输入 x.y.z 版本号安装或降级"},
+			ui.Field{Label: "保留内容", Value: "现有配置、监听端口、mTLS 和独立开关状态"},
+		)
+		a.ui.Blank()
+		a.ui.Option("1", "安装最新稳定版", a.ui.Badge("推荐", true))
+		a.ui.Option("2", "安装指定版本", "")
+		a.ui.ExitOption("返回配置管理")
+		a.ui.Blank()
+		choice, err := a.ui.Ask("请选择")
+		if err != nil {
+			return err
+		}
+		switch strings.ToLower(choice) {
+		case "0", "q", "exit":
+			return nil
+		case "1":
+			a.install(ctx, component, "latest")
+			return nil
+		case "2":
+			wantedVersion, err := a.ui.Ask("输入版本号，例如 1.2.3")
+			if err != nil {
+				return err
+			}
+			if wantedVersion == "" {
+				a.ui.Card(ui.Warning, "版本号不能为空",
+					ui.Field{Label: "正确格式", Value: "x.y.z，例如 3.7.2"},
+				)
+				a.ui.Pause()
+				continue
+			}
+			a.install(ctx, component, wantedVersion)
+			return nil
 		default:
 			a.ui.InvalidChoice()
 			a.ui.Pause()
@@ -187,10 +219,10 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 			mtlsStatus = "已启用（HTTPS，验证客户端证书）"
 		}
 		configFields := []ui.Field{
-			ui.Field{Label: "主配置", Value: configuration.Path},
-			ui.Field{Label: "监听端口", Value: portText(configuration.ListenPort)},
-			ui.Field{Label: "mTLS", Value: mtlsStatus},
-			ui.Field{Label: "证书目录", Value: configuration.TLSDir},
+			{Label: "主配置", Value: configuration.Path},
+			{Label: "监听端口", Value: portText(configuration.ListenPort)},
+			{Label: "mTLS", Value: mtlsStatus},
+			{Label: "证书目录", Value: configuration.TLSDir},
 		}
 		if component.name == "prometheus" {
 			configFields = append(configFields, ui.Field{Label: "远程写入接收", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "独立开关；开启前必须先启用 mTLS"})
@@ -257,6 +289,13 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 			a.ui.Pause()
 		}
 	}
+}
+
+func (a *App) unavailableConfigAction(component componentView) {
+	a.ui.Card(ui.Warning, component.label+"尚未安装",
+		ui.Field{Label: "下一步", Value: "请先选择“安装或更新”"},
+	)
+	a.ui.Pause()
 }
 
 func (a *App) toggleRemoteWrite(ctx context.Context, component componentView, configuration manager.Configuration) {

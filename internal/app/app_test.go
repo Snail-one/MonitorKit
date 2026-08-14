@@ -31,6 +31,26 @@ func TestMainMenuExitsAndShowsMonitoringDomain(t *testing.T) {
 	}
 }
 
+func TestConfigurationAndInstallAreSeparateComponentActions(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	mgr, err := manager.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	// Prometheus -> 安装或更新 -> 返回各级菜单 -> 退出。
+	application := New(mgr, ui.New(strings.NewReader("1\n2\nq\nq\nq\n"), &output))
+	if err := application.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"配置管理", "安装或更新", "安装最新稳定版", "安装指定版本", "现有配置、监听端口、mTLS 和独立开关状态"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("nested install menu does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestComponentAddressFollowsMTLSState(t *testing.T) {
 	if got := componentAddress(false, 23100); got != "http://服务器地址:23100" {
 		t.Fatalf("plain address = %q", got)
