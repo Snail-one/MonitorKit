@@ -38,6 +38,7 @@ jobs:
           go vet ./...
           bash -n scripts/*.sh scripts/probes/*/install.sh
           bash scripts/test_installer.sh
+          bash scripts/test_release_notes.sh
 
   build:
     name: build (linux/${{ matrix.goarch }})

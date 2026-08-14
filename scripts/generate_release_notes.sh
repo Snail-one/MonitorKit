@@ -24,17 +24,43 @@ else
   RANGE="${TARGET}"
 fi
 
+print_commit_notes() {
+  local commit="$1"
+  local short_commit="${commit:0:7}"
+  local line cleaned
+  local -a lines=()
+  local index
+
+  while IFS= read -r line; do
+    cleaned="$(
+      printf '%s' "${line}" |
+        sed -e 's/^[[:space:]]*//' \
+          -e 's/^[•*-][[:space:]]*//' \
+          -e 's/[[:space:]]*$//'
+    )"
+    if [[ -n "${cleaned}" ]]; then
+      lines+=("${cleaned}")
+    fi
+  done < <(git show --no-patch --format='%B' "${commit}")
+
+  if [[ "${#lines[@]}" -eq 0 ]]; then
+    lines=("无标题提交")
+  fi
+
+  printf -- '- %s ([`%s`](https://github.com/%s/commit/%s))\n' \
+    "${lines[0]}" "${short_commit}" "${REPOSITORY}" "${commit}"
+  for ((index = 1; index < ${#lines[@]}; index++)); do
+    printf -- '  - %s\n' "${lines[$index]}"
+  done
+}
+
 {
   printf '## 本次更新\n\n'
-  if git rev-list --max-count=1 --no-merges "${RANGE}" | grep -q .; then
-    git log "${RANGE}" --no-merges --format='%H%x09%s' --no-decorate |
-      while IFS=$'\t' read -r commit subject; do
-        short_commit="${commit:0:7}"
-        subject="$(printf '%s' "${subject}" | sed -e 's/^[[:space:]]*//' -e 's/^[•*-][[:space:]]*//')"
-        [[ -n "${subject}" ]] || subject="无标题提交"
-        printf -- '- %s ([`%s`](https://github.com/%s/commit/%s))\n' \
-          "${subject}" "${short_commit}" "${REPOSITORY}" "${commit}"
-      done
+  FIRST_COMMIT="$(git rev-list --max-count=1 --no-merges "${RANGE}")"
+  if [[ -n "${FIRST_COMMIT}" ]]; then
+    while IFS= read -r commit; do
+      print_commit_notes "${commit}"
+    done < <(git rev-list --no-merges "${RANGE}")
   else
     printf '本版本未检测到新的提交。\n'
   fi
