@@ -21,6 +21,7 @@ LOKI_MTLS_KEY_FILE="${LOKI_MTLS_KEY_FILE:-}"
 LOKI_TLS_SERVER_NAME="${LOKI_TLS_SERVER_NAME:-}"
 PROMETHEUS_MTLS_ENABLED=0
 LOKI_MTLS_ENABLED=0
+INTERACTIVE_DEVICE=""
 
 info() { printf '[信息] %s\n' "$*"; }
 die() { printf '[错误] %s\n' "$*" >&2; exit 1; }
@@ -30,12 +31,13 @@ usage() {
 Grafana Alloy 指标与日志统一探针安装脚本。
 
 用法：
-  sudo PROMETHEUS_URL=http://中心服务器:9090 \
-       LOKI_URL=http://中心服务器:3100 ./install.sh
+  curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | sudo bash
+  sudo ./install.sh             # 本地执行时使用相同的交互配置
   sudo ./install.sh uninstall   # 保留配置和数据
   sudo ./install.sh purge       # 删除配置和数据
 
-PROMETHEUS_URL 和 LOKI_URL 仅填写服务根地址，脚本会自动追加写入路径。
+安装时会交互询问 Prometheus、Loki 地址和各自的 mTLS 客户端证书。
+URL 仅填写服务根地址，脚本会自动追加写入路径。
 Alloy 已内置 Unix 主机指标采集；不要在同一服务器重复安装 node_exporter。
 
 中心端启用 mTLS 时，分别提供客户端证书：
@@ -50,11 +52,146 @@ Alloy 已内置 Unix 主机指标采集；不要在同一服务器重复安装 n
 
 mTLS 模式要求对应 URL 使用 https://。证书会复制到 /etc/alloy/tls/，
 普通卸载保留证书，purge 才会随 /etc/alloy 一并删除。
+
+无人值守安装仍可预先设置以上变量；变量完整时不会打开交互输入。
 EOF
 }
 
 require_root() {
   [[ "${EUID}" -eq 0 ]] || die "请使用 root 或 sudo 运行"
+}
+
+detect_interactive_device() {
+  [[ -n "${INTERACTIVE_DEVICE}" ]] && return 0
+  if [[ -c /dev/tty ]] && { : </dev/tty; } 2>/dev/null; then
+    INTERACTIVE_DEVICE="/dev/tty"
+  elif [[ -t 0 ]]; then
+    INTERACTIVE_DEVICE="/dev/stdin"
+  else
+    return 1
+  fi
+}
+
+set_interactive_device() {
+  detect_interactive_device || die "缺少交互式终端；请在终端运行脚本，或通过环境变量提供完整配置"
+}
+
+prompt_required() {
+  local variable_name="$1"
+  local prompt="$2"
+  local value="${!variable_name:-}"
+  [[ -n "${value}" ]] && return 0
+  if ! detect_interactive_device; then
+    printf -v "${variable_name}" '%s' "${default_value}"
+    return 0
+  fi
+  while [[ -z "${value}" ]]; do
+    printf '❯ %s： ' "${prompt}" >&2
+    IFS= read -r value <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    [[ -n "${value}" ]] || info "该项不能为空，请重新输入"
+  done
+  printf -v "${variable_name}" '%s' "${value}"
+}
+
+prompt_with_default() {
+  local variable_name="$1"
+  local prompt="$2"
+  local default_value="$3"
+  local value="${!variable_name:-}"
+  [[ -n "${value}" ]] && return 0
+  set_interactive_device
+  printf '❯ %s [%s]： ' "${prompt}" "${default_value}" >&2
+  IFS= read -r value <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+  value="${value:-${default_value}}"
+  printf -v "${variable_name}" '%s' "${value}"
+}
+
+ask_yes_no() {
+  local prompt="$1"
+  local answer=""
+  set_interactive_device
+  while true; do
+    printf '❯ %s [y/N]： ' "${prompt}" >&2
+    IFS= read -r answer <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    case "${answer,,}" in
+      y|yes) return 0 ;;
+      ""|n|no) return 1 ;;
+      *) info "请输入 y 或 n" ;;
+    esac
+  done
+}
+
+valid_backend_url() {
+  local value="$1"
+  local port=""
+  if [[ "${value}" =~ ^https?://[A-Za-z0-9._-]+(:([0-9]{1,5}))?$ ]]; then
+    port="${BASH_REMATCH[2]:-}"
+    [[ -z "${port}" || ("${port}" -ge 1 && "${port}" -le 65535) ]]
+    return
+  fi
+  return 1
+}
+
+prompt_backend_url() {
+  local variable_name="$1"
+  local label="$2"
+  local example_port="$3"
+  local value="${!variable_name:-}"
+  if [[ -n "${value}" ]]; then
+    return 0
+  fi
+  set_interactive_device
+  while true; do
+    printf '❯ %s 根地址（例如 http://10.0.0.10:%s）： ' "${label}" "${example_port}" >&2
+    IFS= read -r value <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    value="${value%/}"
+    if valid_backend_url "${value}"; then
+      printf -v "${variable_name}" '%s' "${value}"
+      return 0
+    fi
+    info "地址格式无效，请输入 http://主机:端口 或 https://主机:端口"
+  done
+}
+
+collect_backend_mtls_settings() {
+  local backend="$1"
+  local label="$2"
+  local url="$3"
+  local ca_variable="${backend}_MTLS_CA_FILE"
+  local cert_variable="${backend}_MTLS_CERT_FILE"
+  local key_variable="${backend}_MTLS_KEY_FILE"
+  local server_name_variable="${backend}_TLS_SERVER_NAME"
+  local enabled_variable="${backend}_MTLS_ENABLED"
+  local configured="${!ca_variable:-}${!cert_variable:-}${!key_variable:-}${!server_name_variable:-}"
+  local host="${url#*://}"
+  host="${host%%:*}"
+
+  if [[ -z "${configured}" ]]; then
+    if ! detect_interactive_device; then
+      printf -v "${enabled_variable}" '%s' 0
+      return 0
+    fi
+    if ! ask_yes_no "${label} 是否启用 mTLS 客户端证书认证"; then
+      printf -v "${enabled_variable}" '%s' 0
+      return 0
+    fi
+  fi
+
+  printf -v "${enabled_variable}" '%s' 1
+  prompt_required "${ca_variable}" "${label} 服务端 CA 证书路径"
+  prompt_required "${cert_variable}" "${label} Alloy 客户端证书路径"
+  prompt_required "${key_variable}" "${label} Alloy 客户端私钥路径"
+  prompt_with_default "${server_name_variable}" "${label} TLS server_name" "${host}"
+}
+
+collect_install_settings() {
+  info "开始配置 Alloy 数据接收中心"
+  prompt_backend_url PROMETHEUS_URL Prometheus 9090
+  prompt_backend_url LOKI_URL Loki 3100
+  collect_backend_mtls_settings PROMETHEUS Prometheus "${PROMETHEUS_URL}"
+  collect_backend_mtls_settings LOKI Loki "${LOKI_URL}"
 }
 
 validate_backend_urls() {
@@ -276,6 +413,7 @@ EOF
 }
 
 install_probe() {
+  collect_install_settings
   validate_backend_urls
   install_package
   getent group systemd-journal >/dev/null 2>&1 && usermod -aG systemd-journal alloy

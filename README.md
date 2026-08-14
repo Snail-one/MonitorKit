@@ -115,8 +115,10 @@ Grafana Alloy 指标与日志统一探针：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | \
-  sudo PROMETHEUS_URL=http://10.0.0.10:9090 LOKI_URL=http://10.0.0.10:3100 bash
+  sudo bash
 ```
+
+脚本会交互询问 Prometheus、Loki 根地址，以及两个中心是否启用 mTLS。通过管道执行时会从 `/dev/tty` 读取输入，不会与下载脚本使用的标准输入冲突。
 
 两种探针按项目需求二选一：只需要主机指标时安装 node_exporter；同时需要指标和日志时安装 Alloy。Alloy 已内置 Unix 主机指标采集，同一服务器不应再重复安装 node_exporter。
 
@@ -145,24 +147,17 @@ Prometheus 和 Loki 的管理菜单均提供“配置管理”：
 Prometheus 还会生成 `/etc/prometheus/web.yml`。证书和私钥会通过 OpenSSL 检查格式与匹配关系，服务配置通过校验后才会重启。
 启用后该端口上的 Web UI、查询 API、健康检查和写入接口都会要求受信任的客户端证书。
 
-Alloy 连接已启用 mTLS 的中心端时，使用 HTTPS 地址并提供客户端证书。例如两个中心使用同一套 CA 和客户端证书：
+Alloy 连接已启用 mTLS 的中心端时，在安装交互中为对应中心选择 `y`，然后依次输入：
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | \
-  sudo PROMETHEUS_URL=https://monitor.example.com:9090 \
-       LOKI_URL=https://monitor.example.com:3100 \
-       PROMETHEUS_MTLS_CA_FILE=/root/monitor-ca.crt \
-       PROMETHEUS_MTLS_CERT_FILE=/root/alloy-client.crt \
-       PROMETHEUS_MTLS_KEY_FILE=/root/alloy-client.key \
-       PROMETHEUS_TLS_SERVER_NAME=monitor.example.com \
-       LOKI_MTLS_CA_FILE=/root/monitor-ca.crt \
-       LOKI_MTLS_CERT_FILE=/root/alloy-client.crt \
-       LOKI_MTLS_KEY_FILE=/root/alloy-client.key \
-       LOKI_TLS_SERVER_NAME=monitor.example.com \
-       bash
+```text
+中心 HTTPS 根地址
+服务端 CA 证书路径
+Alloy 客户端证书路径
+Alloy 客户端私钥路径
+证书中的 TLS server_name
 ```
 
-Prometheus 与 Loki 的证书参数彼此独立，只给已经启用 mTLS 的中心配置对应变量即可。
+Prometheus 与 Loki 独立询问，只有启用 mTLS 的中心才要求填写证书。无人值守场景仍可使用脚本帮助中列出的环境变量。
 
 探针卸载：
 

@@ -462,8 +462,9 @@ func (a *App) probeMenu() error {
 			a.ui.Pause()
 		case "2":
 			a.ui.Card(ui.Neutral, "Grafana Alloy 统一探针安装命令",
-				ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | sudo PROMETHEUS_URL=http://中心服务器:9090 LOKI_URL=http://中心服务器:3100 bash"},
+				ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | sudo bash"},
 				ui.Field{Label: "采集内容", Value: "CPU、内存、磁盘、网络指标与 systemd journal 日志"},
+				ui.Field{Label: "配置方式", Value: "脚本内交互填写中心地址与 mTLS 证书"},
 			)
 			a.ui.Pause()
 		default:
