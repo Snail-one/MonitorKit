@@ -1,0 +1,20 @@
+[Unit]
+Description=SnailMon central monitoring manager
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=-/etc/snailmon/snailmon.env
+ExecStart=/usr/local/bin/snailmon serve
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
+

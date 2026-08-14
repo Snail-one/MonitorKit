@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Install or upgrade Prometheus as a systemd service.
+# Legacy compatibility script. New central-server deployments are managed by
+# the Go program under cmd/snailmon.
 #
 # Optional environment variables:
 #   PROMETHEUS_VERSION=latest
