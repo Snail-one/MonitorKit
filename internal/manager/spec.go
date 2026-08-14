@@ -13,7 +13,7 @@ type componentSpec struct {
 	binaries   []string
 	assetName  func(version, arch string) string
 	config     func(dataDir string) string
-	unit       func() string
+	unit       func(mtls bool) string
 	validate   func(ctx context.Context, configPath string) error
 }
 
@@ -79,8 +79,12 @@ scrape_configs:
 `
 }
 
-func prometheusUnit() string {
-	return `[Unit]
+func prometheusUnit(mtls bool) string {
+	webConfigArgument := ""
+	if mtls {
+		webConfigArgument = " --web.config.file=/etc/prometheus/web.yml"
+	}
+	return fmt.Sprintf(`[Unit]
 Description=Prometheus monitoring server
 Wants=network-online.target
 After=network-online.target
@@ -89,7 +93,7 @@ After=network-online.target
 User=prometheus
 Group=prometheus
 Type=simple
-ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus --web.listen-address=0.0.0.0:9090 --web.enable-remote-write-receiver
+ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus --web.listen-address=0.0.0.0:9090 --web.enable-remote-write-receiver%s
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
@@ -101,7 +105,7 @@ ReadWritePaths=/var/lib/prometheus
 
 [Install]
 WantedBy=multi-user.target
-`
+`, webConfigArgument)
 }
 
 func lokiConfig(dataDir string) string {
@@ -137,8 +141,12 @@ limits_config:
 `, dataDir, dataDir, dataDir)
 }
 
-func lokiUnit() string {
-	return `[Unit]
+func lokiUnit(mtls bool) string {
+	tlsArguments := ""
+	if mtls {
+		tlsArguments = " -server.http-tls-cert-path=/etc/loki/tls/server.crt -server.http-tls-key-path=/etc/loki/tls/server.key -server.http-tls-client-auth=RequireAndVerifyClientCert -server.http-tls-ca-path=/etc/loki/tls/client-ca.crt"
+	}
+	return fmt.Sprintf(`[Unit]
 Description=Grafana Loki log server
 Wants=network-online.target
 After=network-online.target
@@ -147,7 +155,7 @@ After=network-online.target
 User=loki
 Group=loki
 Type=simple
-ExecStart=/usr/local/bin/loki -config.file=/etc/loki/loki.yml
+ExecStart=/usr/local/bin/loki -config.file=/etc/loki/loki.yml%s
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
@@ -158,5 +166,5 @@ ReadWritePaths=/var/lib/loki
 
 [Install]
 WantedBy=multi-user.target
-`
+`, tlsArguments)
 }

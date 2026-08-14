@@ -174,7 +174,7 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 		return Status{}, fmt.Errorf("检查配置文件：%w", err)
 	}
 	unitPath := filepath.Join(unitDir, name+".service")
-	if err := atomicWrite(unitPath, []byte(spec.unit()), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(spec.unit(mtlsEnabledLocked(m, name))), 0644); err != nil {
 		return Status{}, fmt.Errorf("写入 systemd 单元：%w", err)
 	}
 
@@ -195,6 +195,14 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 		if spec.validate != nil {
 			if err := spec.validate(ctx, configPath); err != nil {
 				return Status{}, fmt.Errorf("%s 配置校验失败：%w", name, err)
+			}
+		}
+		if mtlsEnabledLocked(m, name) {
+			if err := validateTLSMaterial(ctx, m.tlsFilesLocked(name)); err != nil {
+				return Status{}, fmt.Errorf("%s mTLS 证书校验失败：%w", name, err)
+			}
+			if err := m.validateMTLSConfigLocked(ctx, spec, configPath); err != nil {
+				return Status{}, fmt.Errorf("%s mTLS 配置校验失败：%w", name, err)
 			}
 		}
 		if err := run(ctx, "systemctl", "daemon-reload"); err != nil {

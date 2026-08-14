@@ -119,7 +119,21 @@ func TestValidVersion(t *testing.T) {
 }
 
 func TestPrometheusAcceptsAlloyRemoteWrite(t *testing.T) {
-	if !strings.Contains(prometheusUnit(), "--web.enable-remote-write-receiver") {
+	if !strings.Contains(prometheusUnit(false), "--web.enable-remote-write-receiver") {
 		t.Fatal("Prometheus unit does not enable the remote-write receiver")
+	}
+}
+
+func TestComponentUnitsPreserveManagedMTLS(t *testing.T) {
+	if !strings.Contains(prometheusUnit(true), "--web.config.file=/etc/prometheus/web.yml") {
+		t.Fatal("Prometheus mTLS unit does not use the managed web config")
+	}
+	for _, want := range []string{"-server.http-tls-cert-path=", "-server.http-tls-client-auth=RequireAndVerifyClientCert"} {
+		if !strings.Contains(lokiUnit(true), want) {
+			t.Fatalf("Loki mTLS unit does not contain %q", want)
+		}
+	}
+	if strings.Contains(prometheusUnit(false), "--web.config.file=") || strings.Contains(lokiUnit(false), "http-tls") {
+		t.Fatal("plain HTTP units unexpectedly contain mTLS arguments")
 	}
 }

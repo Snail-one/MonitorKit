@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -36,5 +38,32 @@ func TestReadyCount(t *testing.T) {
 	}
 	if got := readyCount(statuses); got != 1 {
 		t.Fatalf("readyCount = %d, want 1", got)
+	}
+}
+
+func TestComponentAddressFollowsMTLSState(t *testing.T) {
+	component := componentViews["loki"]
+	if got := componentAddress(component, false); got != "http://服务器地址:3100" {
+		t.Fatalf("plain address = %q", got)
+	}
+	if got := componentAddress(component, true); got != "https://服务器地址:3100" {
+		t.Fatalf("mTLS address = %q", got)
+	}
+}
+
+func TestSelectTextEditorUsesSupportedPriority(t *testing.T) {
+	directory := t.TempDir()
+	for _, name := range []string{"nano", "vi"} {
+		if err := os.WriteFile(filepath.Join(directory, name), []byte("#!/bin/sh\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", directory)
+	editor, err := selectTextEditor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(editor) != "nano" {
+		t.Fatalf("selected editor = %q, want nano before vi", editor)
 	}
 }

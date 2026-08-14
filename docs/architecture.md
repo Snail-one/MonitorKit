@@ -17,7 +17,9 @@ docs/                         架构和运维文档
 .github/workflows/            CI 与 GitHub Release 发布流程
 ```
 
-`internal/app` 只负责编排交互流程，`internal/ui` 不依赖监控业务。`internal/server` 仅依赖 `Manager` 接口，不包含 Prometheus 或 Loki 的分支逻辑。组件元数据统一注册在 `internal/manager/spec.go`，下载、SHA-256 校验和压缩包处理是公共能力。
+`internal/app` 只负责编排交互流程，`internal/ui` 不依赖监控业务。`internal/server` 仅依赖 `Manager` 接口，不包含 Prometheus 或 Loki 的分支逻辑。组件元数据统一注册在 `internal/manager/spec.go`，下载、SHA-256 校验、压缩包处理以及安全配置编辑是公共能力。
+
+配置编辑通过受限的 `vim → nano → vi` 编辑器选择进入：Manager 在编辑前保存原内容，编辑后调用组件自己的校验器，并在校验成功后 reload/restart。失败内容单独保留，活动配置自动回滚。mTLS 使用受管状态标记生成组件 unit，因此二进制更新不会丢失 TLS 模式。
 
 ## 扩展中心组件
 
@@ -40,4 +42,5 @@ API 路由以 `{name}` 作为组件参数，因此新增组件无需复制 HTTP 
 - API 只允许已注册组件和预定义动作，不接收任意 Shell 命令。
 - 默认监听 `127.0.0.1:8088`；监听公网或内网地址时强制要求 Bearer Token。
 - 发布包必须通过 GitHub Release 提供的 SHA-256 digest 校验。
+- Prometheus 与 Loki 可强制验证 Alloy 客户端证书；服务端证书、私钥和客户端 CA 在启用前通过 OpenSSL 校验。
 - 默认卸载保留配置与数据，只有显式 `purge` 才清理。

@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/Snail-one/MonitorKit/internal/manager"
@@ -105,19 +106,33 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 		if err != nil {
 			return err
 		}
+		configuration, err := a.manager.Configuration(component.name)
+		if err != nil {
+			return err
+		}
+		transport := "HTTP"
+		if configuration.MTLSEnabled {
+			transport = "HTTPS + mTLS"
+		}
 		a.ui.Title(component.label)
 		a.ui.Card(ui.Neutral, component.description,
 			ui.Field{Label: "安装状态", Value: installedText(status)},
 			ui.Field{Label: "服务状态", Value: serviceText(status.ServiceState)},
 			ui.Field{Label: "当前版本", Value: valueOr(status.Version, "—")},
 			ui.Field{Label: "配置文件", Value: component.configPath},
-			ui.Field{Label: "服务地址", Value: component.address},
+			ui.Field{Label: "服务地址", Value: componentAddress(component, configuration.MTLSEnabled)},
+			ui.Field{Label: "传输安全", Value: transport},
 		)
 		a.ui.Blank()
 		a.ui.Option("1", "安装或更新", a.ui.Badge("最新稳定版", true))
 		a.ui.Option("2", "安装指定版本", "")
-		a.ui.Option("3", "卸载程序", a.ui.Badge("保留数据", true))
-		a.ui.Option("4", "彻底清理", a.ui.Badge("删除数据", false))
+		configBadge := a.ui.Badge("先安装", false)
+		if status.Installed {
+			configBadge = a.ui.Badge("编辑/校验/mTLS", true)
+		}
+		a.ui.Option("3", "配置管理", configBadge)
+		a.ui.Option("4", "卸载程序", a.ui.Badge("保留数据", true))
+		a.ui.Option("5", "彻底清理", a.ui.Badge("删除数据", false))
 		a.ui.ExitOption("返回总览")
 		a.ui.Blank()
 
@@ -142,14 +157,220 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 			}
 			a.install(ctx, component, version)
 		case "3":
-			a.uninstall(ctx, component, false)
+			if !status.Installed {
+				a.ui.Card(ui.Warning, component.label+"尚未安装",
+					ui.Field{Label: "下一步", Value: "请先选择安装或更新，再进入配置管理"},
+				)
+				a.ui.Pause()
+				continue
+			}
+			if err := a.configurationMenu(ctx, component); err != nil {
+				return err
+			}
 		case "4":
+			a.uninstall(ctx, component, false)
+		case "5":
 			a.uninstall(ctx, component, true)
 		default:
 			a.ui.InvalidChoice()
 			a.ui.Pause()
 		}
 	}
+}
+
+func (a *App) configurationMenu(ctx context.Context, component componentView) error {
+	for {
+		configuration, err := a.manager.Configuration(component.name)
+		if err != nil {
+			return err
+		}
+		a.ui.Clear()
+		a.ui.Title(component.label, "配置管理")
+		mtlsStatus := "未启用（HTTP）"
+		if configuration.MTLSEnabled {
+			mtlsStatus = "已启用（HTTPS，验证客户端证书）"
+		}
+		a.ui.Card(ui.Neutral, component.label+"配置",
+			ui.Field{Label: "主配置", Value: configuration.Path},
+			ui.Field{Label: "mTLS", Value: mtlsStatus},
+			ui.Field{Label: "证书目录", Value: configuration.TLSDir},
+		)
+		a.ui.Blank()
+		a.ui.Option("1", "编辑主配置", a.ui.Badge("vim/nano/vi", true))
+		a.ui.Option("2", "校验当前配置", "")
+		a.ui.Option("3", "重启并应用配置", "")
+		a.ui.Option("4", "配置或更新 mTLS", a.ui.Badge("证书校验", true))
+		if configuration.MTLSEnabled {
+			a.ui.Option("5", "关闭 mTLS", a.ui.Badge("保留证书", false))
+		}
+		a.ui.ExitOption("返回" + component.label)
+		a.ui.Blank()
+
+		choice, err := a.ui.Ask("请选择")
+		if err != nil {
+			return err
+		}
+		switch strings.ToLower(choice) {
+		case "0", "q", "exit":
+			return nil
+		case "1":
+			a.editComponentConfig(ctx, component)
+		case "2":
+			a.validateComponentConfig(ctx, component)
+		case "3":
+			a.restartComponent(ctx, component)
+		case "4":
+			a.configureComponentMTLS(ctx, component)
+		case "5":
+			if configuration.MTLSEnabled {
+				a.disableComponentMTLS(ctx, component)
+			} else {
+				a.ui.InvalidChoice()
+				a.ui.Pause()
+			}
+		default:
+			a.ui.InvalidChoice()
+			a.ui.Pause()
+		}
+	}
+}
+
+func (a *App) editComponentConfig(ctx context.Context, component componentView) {
+	editor, err := selectTextEditor()
+	if err != nil {
+		a.operationError("无法编辑"+component.label+"配置", err)
+		return
+	}
+	confirmed, err := a.ui.Confirm("使用 " + filepathBase(editor) + " 编辑配置，保存后自动校验并应用")
+	if err != nil || !confirmed {
+		return
+	}
+	_, err = a.manager.EditConfig(ctx, component.name, func(path string) error {
+		a.ui.Card(ui.Neutral, "正在编辑"+component.label,
+			ui.Field{Label: "编辑器", Value: filepathBase(editor)},
+			ui.Field{Label: "配置文件", Value: path},
+			ui.Field{Label: "安全机制", Value: "校验失败自动恢复原配置，并保留无效内容"},
+		)
+		return openTextEditor(ctx, editor, path)
+	})
+	if err != nil {
+		a.operationError(component.label+"配置未应用", err)
+		return
+	}
+	a.ui.Card(ui.Success, component.label+"配置已应用",
+		ui.Field{Label: "配置文件", Value: component.configPath},
+		ui.Field{Label: "校验", Value: "通过"},
+	)
+	a.ui.Pause()
+}
+
+func (a *App) validateComponentConfig(ctx context.Context, component componentView) {
+	err := a.ui.During("正在校验"+component.label+"配置", func() error {
+		return a.manager.ValidateConfig(ctx, component.name)
+	})
+	if err != nil {
+		a.operationError(component.label+"配置校验失败", err)
+		return
+	}
+	a.ui.Card(ui.Success, component.label+"配置校验通过", ui.Field{Label: "配置文件", Value: component.configPath})
+	a.ui.Pause()
+}
+
+func (a *App) restartComponent(ctx context.Context, component componentView) {
+	confirmed, err := a.ui.Confirm("确认校验配置并重启" + component.label)
+	if err != nil || !confirmed {
+		return
+	}
+	err = a.ui.During("正在应用"+component.label+"配置", func() error {
+		return a.manager.Restart(ctx, component.name)
+	})
+	if err != nil {
+		a.operationError(component.label+"配置应用失败", err)
+		return
+	}
+	a.ui.Card(ui.Success, component.label+"配置已应用", ui.Field{Label: "服务", Value: "已重启"})
+	a.ui.Pause()
+}
+
+func (a *App) configureComponentMTLS(ctx context.Context, component componentView) {
+	editor, err := selectTextEditor()
+	if err != nil {
+		a.operationError("无法配置 "+component.label+" mTLS", err)
+		return
+	}
+	confirmed, err := a.ui.Confirm("确认配置 mTLS 并依次编辑服务端证书、私钥和客户端 CA")
+	if err != nil || !confirmed {
+		return
+	}
+	err = a.manager.ConfigureMTLS(ctx, component.name, func(file manager.TLSFile) error {
+		a.ui.Clear()
+		a.ui.Title(component.label, "mTLS")
+		a.ui.Card(ui.Neutral, "编辑"+file.Label,
+			ui.Field{Label: "文件", Value: file.Path},
+			ui.Field{Label: "要求", Value: file.Description},
+			ui.Field{Label: "编辑器", Value: filepathBase(editor)},
+		)
+		return openTextEditor(ctx, editor, file.Path)
+	})
+	if err != nil {
+		a.operationError(component.label+" mTLS 配置失败", err)
+		return
+	}
+	a.ui.Card(ui.Success, component.label+" mTLS 已启用",
+		ui.Field{Label: "协议", Value: "HTTPS"},
+		ui.Field{Label: "客户端认证", Value: "RequireAndVerifyClientCert"},
+		ui.Field{Label: "访问要求", Value: "Web/API 请求同样需要受信任的客户端证书"},
+		ui.Field{Label: "更新策略", Value: "组件更新时保留 mTLS"},
+	)
+	a.ui.Pause()
+}
+
+func (a *App) disableComponentMTLS(ctx context.Context, component componentView) {
+	confirmed, err := a.ui.Confirm("确认关闭 " + component.label + " mTLS 并恢复 HTTP（证书保留）")
+	if err != nil || !confirmed {
+		return
+	}
+	err = a.ui.During("正在关闭 "+component.label+" mTLS", func() error {
+		return a.manager.DisableMTLS(ctx, component.name)
+	})
+	if err != nil {
+		a.operationError(component.label+" mTLS 关闭失败", err)
+		return
+	}
+	a.ui.Card(ui.Success, component.label+" mTLS 已关闭",
+		ui.Field{Label: "当前协议", Value: "HTTP"},
+		ui.Field{Label: "证书", Value: "已保留，可再次启用"},
+	)
+	a.ui.Pause()
+}
+
+func selectTextEditor() (string, error) {
+	for _, name := range []string{"vim", "nano", "vi"} {
+		if path, err := exec.LookPath(name); err == nil {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("未找到 vim、nano 或 vi，请先安装任意一个编辑器")
+}
+
+func openTextEditor(ctx context.Context, editor, path string) error {
+	inputInfo, err := os.Stdin.Stat()
+	if err != nil || inputInfo.Mode()&os.ModeCharDevice == 0 {
+		return fmt.Errorf("当前没有可用的交互终端，无法打开 %s", filepathBase(editor))
+	}
+	command := exec.CommandContext(ctx, editor, path)
+	command.Stdin = os.Stdin
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	return command.Run()
+}
+
+func filepathBase(path string) string {
+	parts := strings.FieldsFunc(path, func(char rune) bool { return char == '/' || char == '\\' })
+	if len(parts) == 0 {
+		return path
+	}
+	return parts[len(parts)-1]
 }
 
 func (a *App) install(ctx context.Context, component componentView, version string) {
@@ -165,7 +386,7 @@ func (a *App) install(ctx context.Context, component componentView, version stri
 	a.ui.Card(ui.Success, component.label+"已就绪",
 		ui.Field{Label: "版本", Value: status.Version},
 		ui.Field{Label: "服务", Value: serviceText(status.ServiceState)},
-		ui.Field{Label: "访问", Value: component.address},
+		ui.Field{Label: "访问", Value: a.componentAddress(component)},
 	)
 	a.ui.Pause()
 }
@@ -366,4 +587,19 @@ func valueOr(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func (a *App) componentAddress(component componentView) string {
+	configuration, err := a.manager.Configuration(component.name)
+	if err != nil {
+		return component.address
+	}
+	return componentAddress(component, configuration.MTLSEnabled)
+}
+
+func componentAddress(component componentView, mtls bool) string {
+	if mtls {
+		return strings.Replace(component.address, "http://", "https://", 1)
+	}
+	return component.address
 }

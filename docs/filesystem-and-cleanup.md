@@ -63,7 +63,13 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 /usr/local/bin/prometheus
 /usr/local/bin/promtool
 /etc/prometheus/
-└── prometheus.yml
+├── prometheus.yml
+├── web.yml                 # 启用 mTLS 时的受管 Web 配置
+└── tls/                    # 启用或曾启用 mTLS 时
+    ├── server.crt
+    ├── server.key
+    ├── client-ca.crt
+    └── mtls.enabled        # 仅在 mTLS 启用时存在
 /var/lib/prometheus/
 /etc/systemd/system/prometheus.service
 /etc/systemd/system/multi-user.target.wants/prometheus.service
@@ -71,7 +77,9 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 系统组：prometheus
 ```
 
-更新会替换二进制和 systemd unit；已经存在的 `prometheus.yml` 会保留，不会被默认配置覆盖。
+更新会替换二进制和 systemd unit；已经存在的 `prometheus.yml` 会保留，不会被默认配置覆盖。存在 `mtls.enabled` 时，新 unit 会继续引用 `web.yml`，不会在更新后退回 HTTP。
+
+从配置菜单直接编辑 `prometheus.yml` 时，原配置会暂时备份。新配置通过 `promtool` 校验后执行 reload；失败时恢复原配置，并在同一目录保留 `.rejected-时间` 文件供排查。
 
 普通卸载会：
 
@@ -96,7 +104,12 @@ prometheus 用户与组
 ```text
 /usr/local/bin/loki
 /etc/loki/
-└── loki.yml
+├── loki.yml
+└── tls/                    # 启用或曾启用 mTLS 时
+    ├── server.crt
+    ├── server.key
+    ├── client-ca.crt
+    └── mtls.enabled        # 仅在 mTLS 启用时存在
 /var/lib/loki/
 ├── chunks/
 ├── rules/
@@ -107,7 +120,9 @@ prometheus 用户与组
 系统组：loki
 ```
 
-更新会替换二进制和 systemd unit；已经存在的 `loki.yml` 会保留。
+更新会替换二进制和 systemd unit；已经存在的 `loki.yml` 会保留。存在 `mtls.enabled` 时，新 unit 会继续带有 Loki HTTPS 与客户端证书验证参数。
+
+从配置菜单直接编辑 `loki.yml` 时，会先保存原内容，再使用 Loki 的 `-verify-config=true` 校验并重启。校验或启动失败时恢复原配置，并保留 `.rejected-时间` 文件。
 
 普通卸载会删除二进制和 unit，并停止、禁用服务，但保留：
 
@@ -144,6 +159,13 @@ Alloy 通过发行版包管理器安装。脚本明确写入或修改：
 
 ```text
 /etc/alloy/config.alloy
+/etc/alloy/tls/             # 对任一中心启用 mTLS 时
+├── prometheus-ca.crt
+├── prometheus-client.crt
+├── prometheus-client.key
+├── loki-ca.crt
+├── loki-client.crt
+└── loki-client.key
 /var/lib/alloy/
 alloy 用户的 systemd-journal、adm 附加组成员关系（对应组存在时）
 ```
