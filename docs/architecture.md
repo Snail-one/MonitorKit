@@ -33,7 +33,7 @@ Prometheus 与 Loki 同时使用 mTLS 时，Alloy 支持 `shared` 和 `separate`
 每个探针必须位于 `scripts/probes/<name>/install.sh`，脚本应至少支持安装、更新、`uninstall` 和 `purge`。探针脚本自行处理架构检测、校验、systemd 服务和重复执行，不依赖中心端 Go 二进制。
 
 - node_exporter 是只采集主机指标的轻量方案。
-- Grafana Alloy 是指标与日志统一采集方案，通过 `prometheus.exporter.unix` 采集主机指标，并读取全部 systemd journal；日志默认带上 `unit`、`level`、`ident` 和节点 `host`。
+- Grafana Alloy 是指标与日志统一采集方案，通过 `prometheus.exporter.unix` 采集主机指标，并读取全部 systemd journal；日志默认带上 `unit`、`ident` 和节点 `host`。
 - 两种方案在单台被监控服务器上二选一，避免重复上报同一组主机指标。
 
 ## 安全边界
