@@ -2,6 +2,99 @@
 
 本文记录 MonitorKit 管理程序、中心组件和探针在默认配置下写入的系统路径，以及不同卸载命令会删除或保留的内容。通过环境变量修改路径时，以实际配置为准。
 
+## 清单范围
+
+本文把落盘内容分为三类：
+
+1. **MonitorKit 直接管理的路径**：下面的默认路径总索引完整列出；安装、更新和卸载行为由本项目代码确定。
+2. **组件运行时数据子树**：Prometheus、Loki 和 Alloy 会在各自 `/var/lib/.../` 下继续生成版本相关的数据文件，本文以整个目录子树表示，目录内任意新文件均属于该组件数据。
+3. **系统工具产生的副作用**：systemd、journald、用户数据库和发行版包管理器会写自己的数据库、缓存或日志。这些文件不由 MonitorKit 单独拥有，路径可能因发行版和软件包版本变化，因此单独列出，卸载不会为了清理一个组件而删除共享数据库。
+
+除非明确写为临时文件，下面路径均可能在重启后继续存在。
+
+## 默认持久化路径总索引
+
+```text
+/usr/local/bin/
+├── monitorkit
+├── prometheus
+├── promtool
+├── loki
+└── node_exporter
+
+/etc/prometheus/
+├── prometheus.yml
+├── listen.port
+├── remote-write.enabled                 # 仅开启远程写入接收时存在
+├── web.yml                              # 配置过 Prometheus mTLS 后存在
+├── tls/
+│   ├── server.crt
+│   ├── server.key
+│   ├── client-ca.crt
+│   └── mtls.enabled                     # 仅 mTLS 当前启用时存在
+└── probes/
+    ├── inventory.json                   # 添加过 node_exporter 接入后存在
+    └── <probe-id>/                      # 仅该目标使用 mTLS 时存在
+        ├── ca.crt
+        ├── client.crt
+        └── client.key
+
+/etc/loki/
+├── loki.yml
+├── listen.port
+└── tls/
+    ├── server.crt
+    ├── server.key
+    ├── client-ca.crt
+    └── mtls.enabled                     # 仅 mTLS 当前启用时存在
+
+/etc/node_exporter/
+├── web.yml                              # 启用或曾配置过 mTLS
+└── tls/                                 # 启用或曾配置过 mTLS
+    ├── server.crt
+    ├── server.key
+    └── client-ca.crt
+
+/etc/alloy/
+├── config.alloy
+└── tls/
+    ├── prometheus-ca.crt
+    ├── prometheus-client.crt
+    ├── prometheus-client.key
+    ├── loki-ca.crt                      # Loki 选择 mTLS 时
+    ├── loki-client.crt                  # Loki 选择 mTLS 时
+    └── loki-client.key                  # Loki 选择 mTLS 时
+
+/var/lib/prometheus/**                   # TSDB 块、WAL、锁和查询状态等全部数据
+/var/lib/loki/**                         # chunks、rules、TSDB/WAL、索引和缓存等
+/var/lib/alloy/**                        # Alloy 运行状态、队列和组件数据
+
+/etc/systemd/system/
+├── prometheus.service
+├── loki.service
+├── node_exporter.service
+└── multi-user.target.wants/
+    ├── prometheus.service -> ../prometheus.service
+    ├── loki.service -> ../loki.service
+    ├── node_exporter.service -> ../node_exporter.service
+    └── alloy.service -> <发行版软件包提供的 alloy.service>
+
+# Alloy 仓库配置（只会出现当前发行版对应的一组）
+/etc/apt/keyrings/grafana.asc             # Debian/Ubuntu
+/etc/apt/sources.list.d/grafana.list      # Debian/Ubuntu
+/etc/yum.repos.d/grafana.repo             # RHEL/Fedora
+/etc/zypp/repos.d/grafana.repo            # SUSE/openSUSE，文件名由 zypper 按别名生成
+RPM 密钥数据库中的 Grafana 签名密钥         # RPM 系发行版
+```
+
+Alloy 二进制、软件包自带的 systemd unit 和环境文件由发行版软件包决定，不由脚本硬编码。常见路径包括 `/usr/bin/alloy`、`/usr/lib/systemd/system/alloy.service` 或 `/lib/systemd/system/alloy.service`，以及 `/etc/default/alloy` 或 `/etc/sysconfig/alloy`。实际机器上的完整软件包文件清单必须以以下命令为准：
+
+```bash
+dpkg-query -L alloy       # Debian/Ubuntu
+rpm -ql alloy             # RHEL/Fedora/SUSE
+systemctl cat alloy       # 查看实际加载的 unit 和环境文件
+```
+
 ## 清理级别总览
 
 | 对象 | 普通卸载 | 彻底清理 |
@@ -25,7 +118,7 @@
 安装期间还会使用以下临时文件，正常结束或失败退出时自动删除：
 
 ```text
-/tmp/monitorkit-install.*/
+${TMPDIR:-/tmp}/monitorkit-install.XXXXXXXX/
 /usr/local/bin/.monitorkit.new.<PID>
 ```
 
@@ -74,6 +167,8 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 系统组：prometheus
 ```
 
+`/var/lib/prometheus/` 是完整的数据边界。Prometheus 会在其中生成 TSDB 块目录、`wal/`、`chunks_head/`、`queries.active`、`lock` 等运行时内容；具体文件会随 Prometheus 版本和数据状态变化。
+
 首次安装从 `10000-59999` 中选择一个当时可用的随机端口。更新会读取 `listen.port` 并保持端口不变，同时替换二进制和 systemd unit；已经存在的 `prometheus.yml` 会保留，不会被默认配置覆盖。存在 `mtls.enabled` 时，新 unit 会继续引用 `web.yml`，不会在更新后退回 HTTP。远程写入默认关闭，只有 mTLS 已启用且存在 `remote-write.enabled` 时，unit 才会开放 `/api/v1/write`；关闭 mTLS 会同步删除该开关标记。
 
 添加、修改、启停或删除 node_exporter 接入时，MonitorKit 会更新 `inventory.json` 和 `prometheus.yml` 中带有 `BEGIN/END MONITORKIT MANAGED PROBES` 标记的受管 scrape job。新配置只有通过 `promtool` 校验并成功 reload/restart 后才生效，失败会恢复清单和主配置。删除接入配置会删除该探针在中心端保存的 mTLS 文件，但不会连接远程服务器或卸载远程 node_exporter。
@@ -113,7 +208,7 @@ prometheus 用户与组
 /var/lib/loki/
 ├── chunks/
 ├── rules/
-└── 运行时生成的索引及缓存
+└── 运行时生成的 TSDB、WAL、索引、缓存和压缩状态
 /etc/systemd/system/loki.service
 /etc/systemd/system/multi-user.target.wants/loki.service
 系统用户：loki
@@ -170,6 +265,8 @@ Alloy 通过发行版包管理器安装。脚本明确写入或修改：
 alloy 用户的 systemd-journal、adm 附加组成员关系（对应组存在时）
 ```
 
+Alloy 对 `/var/lib/alloy/` 内部结构拥有完整控制权，软件包版本、启用组件和队列状态都可能产生新的子目录或文件；清理边界按整个目录处理，而不是只处理当前已知文件名。
+
 根据发行版，还会新增 Grafana 软件源：
 
 ```text
@@ -182,7 +279,8 @@ RHEL/Fedora:
   RPM 密钥数据库中的 Grafana 签名密钥
 
 SUSE/openSUSE:
-  zypper 中名为 grafana 的软件源配置
+  /etc/zypp/repos.d/grafana.repo（由 zypper 按 grafana 别名生成）
+  RPM 密钥数据库中的 Grafana 签名密钥
 ```
 
 Alloy 软件包自身还会安装发行版管理的二进制、systemd unit、默认环境文件和 `alloy` 系统账号；具体路径由对应版本的软件包决定。
@@ -202,6 +300,81 @@ alloy 用户、组及其附加组成员关系
 
 卸载 Alloy 不会卸载同机存在的 node_exporter，也不会删除中心服务器上的 Prometheus/Loki 数据。
 
+## 系统级共享状态
+
+以下内容会因为安装或运行组件而发生变化，但不是可安全整体删除的组件专属文件：
+
+```text
+/etc/passwd              # prometheus、loki、node_exporter、alloy 账号记录
+/etc/shadow              # 对应系统账号记录
+/etc/group               # 对应系统组及 Alloy 附加组成员关系
+/etc/gshadow             # 对应系统组安全记录
+/etc/passwd-             # shadow-utils 可能生成的上一版本备份
+/etc/shadow-             # shadow-utils 可能生成的上一版本备份
+/etc/group-              # shadow-utils 可能生成的上一版本备份
+/etc/gshadow-            # shadow-utils 可能生成的上一版本备份
+/etc/.pwd.lock           # useradd/userdel/groupadd/groupdel 操作期间的临时锁
+
+/var/log/journal/**      # 启用持久 journald 时，包含各服务日志
+/run/log/journal/**      # journald 使用易失存储时，包含各服务日志
+
+/var/lib/dpkg/**         # Debian/Ubuntu 软件包状态与 alloy 文件清单
+/var/lib/apt/lists/**    # apt update 下载的软件源索引
+/var/cache/apt/**        # apt 软件包缓存
+/var/lib/rpm/**          # 部分 RPM 系统的软件包数据库
+/usr/lib/sysimage/rpm/** # 新版 RPM 系统可能使用的软件包数据库
+/var/cache/dnf/**        # DNF 缓存
+/var/cache/yum/**        # YUM 缓存
+/var/lib/zypp/**         # SUSE 软件源和软件包状态
+/var/cache/zypp/**       # SUSE 软件包缓存
+```
+
+- Prometheus 和 Loki 的用户、组只在不存在时创建，普通卸载和 `--purge` 都保留。
+- node_exporter 普通卸载保留用户、组，`purge` 调用 `userdel`/`groupdel` 删除对应记录。
+- Alloy 账号、unit、环境文件和软件包数据库记录由发行版的软件包安装/卸载脚本处理。
+- `systemctl enable` 创建的启用链接会在 disable 或卸载时删除；systemd 自身状态和 journald 历史日志不会随项目 purge 清空。
+- Alloy 安装可能同时安装或更新 `ca-certificates`、`curl`、`gpg` 等依赖；MonitorKit 不会在卸载 Alloy 时反向卸载这些共享软件包。
+
+## 临时落盘路径
+
+正常完成、普通错误退出或配置回滚时，脚本会清理下列临时文件。遭遇断电、内核终止或 `SIGKILL` 时可能残留：
+
+```text
+${TMPDIR:-/tmp}/monitorkit-install.XXXXXXXX/   # 管理程序在线安装下载目录
+${TMPDIR:-/tmp}/monitorkit-action-*.sh        # monitorkit update/uninstall 下载的动作脚本
+${TMPDIR:-/tmp}/monitorkit-prometheus-*       # Prometheus 下载和解压目录
+${TMPDIR:-/tmp}/monitorkit-loki-*             # Loki 下载和解压目录
+
+/usr/local/bin/.monitorkit-*                  # 中心组件二进制原子替换临时文件
+/etc/prometheus/.monitorkit-*                 # 配置、端口、开关原子写入临时文件
+/etc/prometheus/tls/.monitorkit-*
+/etc/prometheus/probes/.monitorkit-*
+/etc/prometheus/probes/<probe-id>/.monitorkit-*
+/etc/loki/.monitorkit-*
+/etc/loki/tls/.monitorkit-*
+/etc/systemd/system/.monitorkit-*             # unit 原子写入临时文件
+
+${TMPDIR:-/tmp}/node-exporter-install.XXXXXXXX/ # node_exporter 下载、校验和解压
+${TMPDIR:-/tmp}/node-exporter-service.XXXXXXXX  # node_exporter unit 暂存文件
+${TMPDIR:-/tmp}/alloy-config.XXXXXXXX/          # Alloy 配置和回滚快照
+${TMPDIR:-/tmp}/tmp.*                           # RPM 模式导入 Grafana key 的 mktemp 文件
+```
+
+`vim`、`nano` 或 `vi` 可能按用户编辑器配置创建 swap、备份或撤销文件；这不是 MonitorKit 主动创建的文件，脚本无法统一预测文件名。MonitorKit 自身不会生成 `.rejected-*` 文件，并会清理旧版本遗留的同名普通文件。
+
+## 本地构建与开发产物
+
+这些路径只出现在源码仓库或 CI/开发环境，不会由线上安装写入服务器项目目录：
+
+```text
+<仓库>/bin/monitorkit                         # make build
+<仓库>/dist/monitorkit_linux_<arch>_<version> # build_linux.sh 默认输出
+<仓库>/release-notes.md                       # generate_release_notes.sh 默认输出
+${TMPDIR:-/tmp}/monitorkit-installer-test.*   # 安装器测试，退出时清理
+${TMPDIR:-/tmp}/tmp.*                          # 发布说明测试，退出时清理
+Go 构建缓存                                   # 位置由 GOCACHE 决定
+```
+
 ## 不会删除的共享系统目录
 
 任何卸载模式都只删除明确列出的目标，不会删除这些共享父目录：
@@ -214,4 +387,4 @@ alloy 用户、组及其附加组成员关系
 /tmp/
 ```
 
-下载和解压使用的 MonitorKit 临时目录会在进程正常结束或返回错误时清理；系统强制断电或 `SIGKILL` 时可能遗留带有 `monitorkit-install.*`、`monitorkit-*` 等前缀的临时目录。
+上述共享父目录本身不会因为卸载单个组件而被删除；只会删除清单中明确属于目标组件的文件、链接或子目录。

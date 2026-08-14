@@ -229,6 +229,17 @@ valid_backend_url() {
   return 1
 }
 
+normalize_backend_url_input() {
+  local value="$1"
+  local default_scheme="${2:-http}"
+  value="$(trim_value "${value}")"
+  value="${value%/}"
+  if [[ -n "${value}" && "${value}" != *://* ]]; then
+    value="${default_scheme}://${value}"
+  fi
+  printf '%s' "${value}"
+}
+
 prompt_backend_url() {
   local variable_name="$1"
   local label="$2"
@@ -236,31 +247,39 @@ prompt_backend_url() {
   local force_prompt="${4:-0}"
   local value="${!variable_name:-}"
   local entered=""
+  local candidate=""
+  local default_scheme="${required_scheme:-http}"
 
   if [[ -n "${value}" && "${force_prompt}" != "1" ]]; then
+    value="$(normalize_backend_url_input "${value}" "${default_scheme}")"
+    printf -v "${variable_name}" '%s' "${value}"
     return 0
+  fi
+  value="$(normalize_backend_url_input "${value}" "${default_scheme}")"
+  if ! valid_backend_url "${value}" || { [[ -n "${required_scheme}" ]] && [[ "${value}" != "${required_scheme}://"* ]]; }; then
+    value=""
   fi
   detect_interactive_device || die "无人值守配置缺少 ${variable_name}"
   while true; do
     if [[ -n "${value}" ]]; then
       printf '❯ %s 根地址 [%s]： ' "${label}" "${value}" >&2
     elif [[ "${required_scheme}" == "https" ]]; then
-      printf '❯ %s HTTPS 根地址（例如 https://10.0.0.10:24567）： ' "${label}" >&2
+      printf '❯ %s 地址（可直接输入 IP:端口，例如 10.0.0.10:24567，自动使用 HTTPS）： ' "${label}" >&2
     else
-      printf '❯ %s 根地址（例如 http://10.0.0.10:34567）： ' "${label}" >&2
+      printf '❯ %s 地址（可直接输入 IP:端口，例如 10.0.0.10:34567，默认使用 HTTP）： ' "${label}" >&2
     fi
-    IFS= read -r entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    IFS= read -e -r entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
     entered="$(trim_value "${entered}")"
-    [[ -n "${entered}" ]] && value="${entered}"
-    value="${value%/}"
-    if valid_backend_url "${value}" && { [[ -z "${required_scheme}" ]] || [[ "${value}" == "${required_scheme}://"* ]]; }; then
-      printf -v "${variable_name}" '%s' "${value}"
+    candidate="${entered:-${value}}"
+    candidate="$(normalize_backend_url_input "${candidate}" "${default_scheme}")"
+    if valid_backend_url "${candidate}" && { [[ -z "${required_scheme}" ]] || [[ "${candidate}" == "${required_scheme}://"* ]]; }; then
+      printf -v "${variable_name}" '%s' "${candidate}"
       return 0
     fi
     if [[ "${required_scheme}" == "https" ]]; then
-      warn "Prometheus 远程写入要求 mTLS，请输入 https://主机:端口"
+      warn "Prometheus 远程写入要求 mTLS；请输入 主机:端口（自动使用 HTTPS）或 https://主机:端口"
     else
-      warn "地址无效，请输入 http://主机:端口 或 https://主机:端口"
+      warn "地址无效，请输入 主机:端口、http://主机:端口 或 https://主机:端口"
     fi
   done
 }
@@ -1027,7 +1046,9 @@ main() {
   esac
 }
 
-trap 'on_error "$?" "$LINENO"' ERR
-trap cleanup EXIT
-init_colors
-main "$@"
+if [[ "${ALLOY_INSTALLER_SOURCE_ONLY:-0}" != "1" ]]; then
+  trap 'on_error "$?" "$LINENO"' ERR
+  trap cleanup EXIT
+  init_colors
+  main "$@"
+fi
