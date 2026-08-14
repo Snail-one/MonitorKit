@@ -1187,7 +1187,7 @@ loki.relabel "journal" {
 loki.source.journal "system" {
   forward_to    = [loki.write.center.receiver]
   relabel_rules = loki.relabel.journal.rules
-  max_age       = "1h"
+  max_age       = "7h"
   labels = {
     source = "systemd-journal",
     job    = "alloy-one",
