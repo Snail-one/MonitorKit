@@ -85,7 +85,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s %s 安装完成，服务状态：%s\n", result.Name, result.Version, result.ServiceState)
+		fmt.Printf("%s %s 安装完成，服务状态：%s，监听端口：%d\n", result.Name, result.Version, result.ServiceState, result.ListenPort)
 		return nil
 	case "uninstall":
 		fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
@@ -115,7 +115,7 @@ func run(args []string) error {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("%-10s installed=%-5t service=%s version=%s\n", status.Name, status.Installed, status.ServiceState, status.Version)
+			fmt.Printf("%-10s installed=%-5t service=%s version=%s port=%s\n", status.Name, status.Installed, status.ServiceState, status.Version, displayPort(status.ListenPort))
 		}
 		return nil
 	case "help", "-h", "--help":
@@ -138,4 +138,11 @@ func envOr(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func displayPort(port int) string {
+	if port == 0 {
+		return "-"
+	}
+	return fmt.Sprint(port)
 }

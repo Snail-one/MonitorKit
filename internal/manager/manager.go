@@ -28,6 +28,7 @@ type Status struct {
 	Installed    bool   `json:"installed"`
 	Version      string `json:"version,omitempty"`
 	ServiceState string `json:"service_state"`
+	ListenPort   int    `json:"listen_port,omitempty"`
 }
 
 // InstallProgress describes a visible phase of a component installation.
@@ -98,6 +99,7 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 	if err != nil {
 		return Status{}, err
 	}
+	name = spec.name
 	if err := m.requireSystemAccess(); err != nil {
 		return Status{}, err
 	}
@@ -152,6 +154,10 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 			return Status{}, fmt.Errorf("创建目录 %s：%w", dir, err)
 		}
 	}
+	listenPort, err := m.ensureListenPortLocked(name)
+	if err != nil {
+		return Status{}, err
+	}
 
 	report(5, "安装程序文件", strings.Join(spec.binaries, "、"))
 	if m.isLiveRoot() {
@@ -167,7 +173,7 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 	report(6, "写入配置与 systemd 服务", "/etc/"+name+" · /var/lib/"+name)
 	configPath := filepath.Join(configDir, name+".yml")
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
-		if err := atomicWrite(configPath, []byte(spec.config("/var/lib/"+name)), 0640); err != nil {
+		if err := atomicWrite(configPath, []byte(spec.config("/var/lib/"+name, listenPort)), 0640); err != nil {
 			return Status{}, fmt.Errorf("写入默认配置：%w", err)
 		}
 	} else if err != nil {
@@ -175,7 +181,7 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 	}
 	_ = removeRejectedConfigs(configPath)
 	unitPath := filepath.Join(unitDir, name+".service")
-	if err := atomicWrite(unitPath, []byte(spec.unit(mtlsEnabledLocked(m, name))), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(spec.unit(mtlsEnabledLocked(m, name), listenPort)), 0644); err != nil {
 		return Status{}, fmt.Errorf("写入 systemd 单元：%w", err)
 	}
 
@@ -224,6 +230,7 @@ func (m *Manager) Uninstall(ctx context.Context, name string, purge bool) error 
 	if err != nil {
 		return err
 	}
+	name = spec.name
 	if err := m.requireSystemAccess(); err != nil {
 		return err
 	}
@@ -262,8 +269,14 @@ func (m *Manager) statusLocked(ctx context.Context, name, knownVersion string) (
 	if err != nil {
 		return Status{}, err
 	}
+	name = spec.name
 	binaryPath := m.path("/usr/local/bin/" + spec.binaries[0])
 	status := Status{Name: name, ServiceState: "not-installed"}
+	listenPort, _, err := m.configuredListenPortLocked(name)
+	if err != nil {
+		return Status{}, err
+	}
+	status.ListenPort = listenPort
 	if _, err := os.Stat(binaryPath); errors.Is(err, os.ErrNotExist) {
 		return status, nil
 	} else if err != nil {

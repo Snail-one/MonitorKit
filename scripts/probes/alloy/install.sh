@@ -137,14 +137,13 @@ valid_backend_url() {
 prompt_backend_url() {
   local variable_name="$1"
   local label="$2"
-  local example_port="$3"
   local value="${!variable_name:-}"
   if [[ -n "${value}" ]]; then
     return 0
   fi
   set_interactive_device
   while true; do
-    printf '❯ %s 根地址（例如 http://10.0.0.10:%s）： ' "${label}" "${example_port}" >&2
+    printf '❯ %s 根地址（例如 http://10.0.0.10:24567，端口以中心显示为准）： ' "${label}" >&2
     IFS= read -r value <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
     value="${value%/}"
     if valid_backend_url "${value}"; then
@@ -188,15 +187,15 @@ collect_backend_mtls_settings() {
 
 collect_install_settings() {
   info "开始配置 Alloy 数据接收中心"
-  prompt_backend_url PROMETHEUS_URL Prometheus 9090
-  prompt_backend_url LOKI_URL Loki 3100
+  prompt_backend_url PROMETHEUS_URL Prometheus
+  prompt_backend_url LOKI_URL Loki
   collect_backend_mtls_settings PROMETHEUS Prometheus "${PROMETHEUS_URL}"
   collect_backend_mtls_settings LOKI Loki "${LOKI_URL}"
 }
 
 validate_backend_urls() {
-  [[ -n "${PROMETHEUS_URL}" ]] || die "缺少 PROMETHEUS_URL，例如：http://10.0.0.10:9090"
-  [[ -n "${LOKI_URL}" ]] || die "缺少 LOKI_URL，例如：http://10.0.0.10:3100"
+  [[ -n "${PROMETHEUS_URL}" ]] || die "缺少 PROMETHEUS_URL，例如：http://10.0.0.10:24567（端口以中心显示为准）"
+  [[ -n "${LOKI_URL}" ]] || die "缺少 LOKI_URL，例如：http://10.0.0.10:24567（端口以中心显示为准）"
   [[ "${PROMETHEUS_URL}" =~ ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?$ ]] || die "PROMETHEUS_URL 格式无效或包含不安全字符"
   [[ "${LOKI_URL}" =~ ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?$ ]] || die "LOKI_URL 格式无效或包含不安全字符"
   PROMETHEUS_URL="${PROMETHEUS_URL%/}"

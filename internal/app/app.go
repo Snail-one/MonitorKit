@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/Snail-one/MonitorKit/internal/manager"
@@ -22,7 +23,6 @@ type componentView struct {
 	name        string
 	label       string
 	description string
-	address     string
 	configPath  string
 }
 
@@ -31,14 +31,12 @@ var componentViews = map[string]componentView{
 		name:        "prometheus",
 		label:       "Prometheus",
 		description: "汇聚并保存服务器性能指标",
-		address:     "http://服务器地址:9090",
 		configPath:  "/etc/prometheus/prometheus.yml",
 	},
 	"loki": {
 		name:        "loki",
 		label:       "Loki",
 		description: "接收并保存探针发送的系统日志",
-		address:     "http://服务器地址:3100",
 		configPath:  "/etc/loki/loki.yml",
 	},
 }
@@ -113,7 +111,8 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 			ui.Field{Label: "服务状态", Value: serviceText(status.ServiceState)},
 			ui.Field{Label: "当前版本", Value: valueOr(status.Version, "—")},
 			ui.Field{Label: "配置文件", Value: component.configPath},
-			ui.Field{Label: "服务地址", Value: componentAddress(component, configuration.MTLSEnabled)},
+			ui.Field{Label: "监听端口", Value: portText(configuration.ListenPort)},
+			ui.Field{Label: "服务地址", Value: componentAddress(configuration.MTLSEnabled, configuration.ListenPort)},
 			ui.Field{Label: "传输安全", Value: transport},
 		)
 		a.ui.Blank()
@@ -185,6 +184,7 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		}
 		a.ui.Card(ui.Neutral, component.label+"配置",
 			ui.Field{Label: "主配置", Value: configuration.Path},
+			ui.Field{Label: "监听端口", Value: portText(configuration.ListenPort)},
 			ui.Field{Label: "mTLS", Value: mtlsStatus},
 			ui.Field{Label: "证书目录", Value: configuration.TLSDir},
 		)
@@ -192,9 +192,10 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		a.ui.Option("1", "编辑主配置", a.ui.Badge("vim/nano/vi", true))
 		a.ui.Option("2", "校验当前配置", "")
 		a.ui.Option("3", "重启并应用配置", "")
-		a.ui.Option("4", "配置或更新 mTLS", a.ui.Badge("证书校验", true))
+		a.ui.Option("4", "修改监听端口", a.ui.Badge("当前 "+portText(configuration.ListenPort), true))
+		a.ui.Option("5", "配置或更新 mTLS", a.ui.Badge("证书校验", true))
 		if configuration.MTLSEnabled {
-			a.ui.Option("5", "关闭 mTLS", a.ui.Badge("保留证书", false))
+			a.ui.Option("6", "关闭 mTLS", a.ui.Badge("保留证书", false))
 		}
 		a.ui.ExitOption("返回" + component.label)
 		a.ui.Blank()
@@ -213,8 +214,10 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		case "3":
 			a.restartComponent(ctx, component)
 		case "4":
-			a.configureComponentMTLS(ctx, component)
+			a.changeComponentPort(ctx, component, configuration.ListenPort)
 		case "5":
+			a.configureComponentMTLS(ctx, component)
+		case "6":
 			if configuration.MTLSEnabled {
 				a.disableComponentMTLS(ctx, component)
 			} else {
@@ -226,6 +229,48 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 			a.ui.Pause()
 		}
 	}
+}
+
+func (a *App) changeComponentPort(ctx context.Context, component componentView, currentPort int) {
+	value, err := a.ui.Ask("输入新端口（1024-65535，输入 r 随机生成）")
+	if err != nil {
+		return
+	}
+	var port int
+	if strings.EqualFold(strings.TrimSpace(value), "r") {
+		port, err = a.manager.RandomListenPort(component.name)
+	} else {
+		port, err = strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			err = fmt.Errorf("请输入 1024-65535 之间的端口，或输入 r")
+		}
+	}
+	if err != nil {
+		a.operationError("无法设置"+component.label+"端口", err)
+		return
+	}
+	confirmed, err := a.ui.Confirm(fmt.Sprintf("确认将 %s 监听端口从 %s 修改为 %d", component.label, portText(currentPort), port))
+	if err != nil || !confirmed {
+		return
+	}
+	err = a.ui.During("正在修改 "+component.label+" 监听端口", func() error {
+		return a.manager.ChangeListenPort(ctx, component.name, port)
+	})
+	if err != nil {
+		a.operationError(component.label+"端口修改失败", err)
+		return
+	}
+	configuration, err := a.manager.Configuration(component.name)
+	if err != nil {
+		a.operationError(component.label+"端口已修改，但读取配置失败", err)
+		return
+	}
+	a.ui.Card(ui.Success, component.label+"监听端口已修改",
+		ui.Field{Label: "新端口", Value: strconv.Itoa(configuration.ListenPort)},
+		ui.Field{Label: "服务地址", Value: componentAddress(configuration.MTLSEnabled, configuration.ListenPort)},
+		ui.Field{Label: "提示", Value: "请同步更新探针中的中心地址"},
+	)
+	a.ui.Pause()
 }
 
 func (a *App) editComponentConfig(ctx context.Context, component componentView) {
@@ -536,14 +581,25 @@ func valueOr(value, fallback string) string {
 func (a *App) componentAddress(component componentView) string {
 	configuration, err := a.manager.Configuration(component.name)
 	if err != nil {
-		return component.address
+		return "—"
 	}
-	return componentAddress(component, configuration.MTLSEnabled)
+	return componentAddress(configuration.MTLSEnabled, configuration.ListenPort)
 }
 
-func componentAddress(component componentView, mtls bool) string {
-	if mtls {
-		return strings.Replace(component.address, "http://", "https://", 1)
+func componentAddress(mtls bool, port int) string {
+	if port == 0 {
+		return "安装时随机生成"
 	}
-	return component.address
+	protocol := "http"
+	if mtls {
+		protocol = "https"
+	}
+	return fmt.Sprintf("%s://服务器地址:%d", protocol, port)
+}
+
+func portText(port int) string {
+	if port == 0 {
+		return "安装时随机生成"
+	}
+	return strconv.Itoa(port)
 }

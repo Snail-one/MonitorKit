@@ -125,7 +125,7 @@ func TestDisableMTLSPreservesCertificates(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(unitPath), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(unitPath, []byte(prometheusUnit(true)), 0644); err != nil {
+	if err := os.WriteFile(unitPath, []byte(prometheusUnit(true, 19090)), 0644); err != nil {
 		t.Fatal(err)
 	}
 

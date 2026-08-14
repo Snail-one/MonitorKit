@@ -12,8 +12,8 @@ type componentSpec struct {
 	user       string
 	binaries   []string
 	assetName  func(version, arch string) string
-	config     func(dataDir string) string
-	unit       func(mtls bool) string
+	config     func(dataDir string, port int) string
+	unit       func(mtls bool, port int) string
 	validate   func(ctx context.Context, configPath string) error
 }
 
@@ -67,19 +67,19 @@ func platformArch() (string, error) {
 	}
 }
 
-func prometheusConfig(_ string) string {
-	return `global:
+func prometheusConfig(_ string, port int) string {
+	return fmt.Sprintf(`global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
 scrape_configs:
   - job_name: prometheus
     static_configs:
-      - targets: ["127.0.0.1:9090"]
-`
+      - targets: ["127.0.0.1:%d"]
+`, port)
 }
 
-func prometheusUnit(mtls bool) string {
+func prometheusUnit(mtls bool, port int) string {
 	webConfigArgument := ""
 	if mtls {
 		webConfigArgument = " --web.config.file=/etc/prometheus/web.yml"
@@ -93,7 +93,7 @@ After=network-online.target
 User=prometheus
 Group=prometheus
 Type=simple
-ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus --web.listen-address=0.0.0.0:9090 --web.enable-remote-write-receiver%s
+ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus --web.listen-address=0.0.0.0:%d --web.enable-remote-write-receiver%s
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
@@ -105,15 +105,15 @@ ReadWritePaths=/var/lib/prometheus
 
 [Install]
 WantedBy=multi-user.target
-`, webConfigArgument)
+`, port, webConfigArgument)
 }
 
-func lokiConfig(dataDir string) string {
+func lokiConfig(dataDir string, port int) string {
 	return fmt.Sprintf(`auth_enabled: false
 
 server:
   http_listen_address: 0.0.0.0
-  http_listen_port: 3100
+  http_listen_port: %d
 
 common:
   path_prefix: %s
@@ -138,10 +138,10 @@ schema_config:
 
 limits_config:
   allow_structured_metadata: true
-`, dataDir, dataDir, dataDir)
+`, port, dataDir, dataDir, dataDir)
 }
 
-func lokiUnit(mtls bool) string {
+func lokiUnit(mtls bool, port int) string {
 	tlsArguments := ""
 	if mtls {
 		tlsArguments = " -server.http-tls-cert-path=/etc/loki/tls/server.crt -server.http-tls-key-path=/etc/loki/tls/server.key -server.http-tls-client-auth=RequireAndVerifyClientCert -server.http-tls-ca-path=/etc/loki/tls/client-ca.crt"
@@ -155,7 +155,7 @@ After=network-online.target
 User=loki
 Group=loki
 Type=simple
-ExecStart=/usr/local/bin/loki -config.file=/etc/loki/loki.yml%s
+ExecStart=/usr/local/bin/loki -config.file=/etc/loki/loki.yml -server.http-listen-address=0.0.0.0 -server.http-listen-port=%d%s
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
@@ -166,5 +166,5 @@ ReadWritePaths=/var/lib/loki
 
 [Install]
 WantedBy=multi-user.target
-`, tlsArguments)
+`, port, tlsArguments)
 }

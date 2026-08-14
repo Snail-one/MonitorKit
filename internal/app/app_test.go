@@ -32,12 +32,14 @@ func TestMainMenuExitsAndShowsMonitoringDomain(t *testing.T) {
 }
 
 func TestComponentAddressFollowsMTLSState(t *testing.T) {
-	component := componentViews["loki"]
-	if got := componentAddress(component, false); got != "http://服务器地址:3100" {
+	if got := componentAddress(false, 23100); got != "http://服务器地址:23100" {
 		t.Fatalf("plain address = %q", got)
 	}
-	if got := componentAddress(component, true); got != "https://服务器地址:3100" {
+	if got := componentAddress(true, 23100); got != "https://服务器地址:23100" {
 		t.Fatalf("mTLS address = %q", got)
+	}
+	if got := componentAddress(false, 0); got != "安装时随机生成" {
+		t.Fatalf("uninstalled address = %q", got)
 	}
 }
 

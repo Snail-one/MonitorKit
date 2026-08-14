@@ -18,6 +18,7 @@ type Configuration struct {
 	Path        string
 	TLSDir      string
 	MTLSEnabled bool
+	ListenPort  int
 }
 
 type TLSFile struct {
@@ -44,11 +45,16 @@ func (m *Manager) Configuration(name string) (Configuration, error) {
 		return Configuration{}, err
 	}
 	name = spec.name
+	listenPort, _, err := m.configuredListenPortLocked(name)
+	if err != nil {
+		return Configuration{}, err
+	}
 	return Configuration{
 		Name:        name,
 		Path:        m.path("/etc/" + name + "/" + name + ".yml"),
 		TLSDir:      m.path("/etc/" + name + "/tls"),
 		MTLSEnabled: mtlsEnabledLocked(m, name),
+		ListenPort:  listenPort,
 	}, nil
 }
 
@@ -147,6 +153,10 @@ func (m *Manager) ConfigureMTLS(ctx context.Context, name string, edit TLSEditFu
 	files := m.tlsFilesLocked(name)
 	markerPath := m.mtlsMarkerPath(name)
 	unitPath := m.path("/etc/systemd/system/" + name + ".service")
+	listenPort, err := m.ensureListenPortLocked(name)
+	if err != nil {
+		return err
+	}
 	managedPaths := []string{unitPath, markerPath}
 	for _, file := range files {
 		managedPaths = append(managedPaths, file.Path)
@@ -222,7 +232,7 @@ func (m *Manager) ConfigureMTLS(ctx context.Context, name string, edit TLSEditFu
 			return rollback(err, false)
 		}
 	}
-	if err := atomicWrite(unitPath, []byte(spec.unit(true)), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(spec.unit(true, listenPort)), 0644); err != nil {
 		return rollback(err, false)
 	}
 	if err := atomicWrite(markerPath, []byte("enabled\n"), 0640); err != nil {
@@ -248,11 +258,15 @@ func (m *Manager) DisableMTLS(ctx context.Context, name string) error {
 	}
 	unitPath := m.path("/etc/systemd/system/" + name + ".service")
 	markerPath := m.mtlsMarkerPath(name)
+	listenPort, err := m.ensureListenPortLocked(name)
+	if err != nil {
+		return err
+	}
 	snapshots, err := snapshotFiles([]string{unitPath, markerPath})
 	if err != nil {
 		return err
 	}
-	if err := atomicWrite(unitPath, []byte(spec.unit(false)), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(spec.unit(false, listenPort)), 0644); err != nil {
 		return err
 	}
 	if err := os.Remove(markerPath); err != nil && !errors.Is(err, os.ErrNotExist) {

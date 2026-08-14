@@ -118,7 +118,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/p
   sudo bash
 ```
 
-脚本会交互询问 Prometheus、Loki 根地址，以及两个中心是否启用 mTLS。通过管道执行时会从 `/dev/tty` 读取输入，不会与下载脚本使用的标准输入冲突。
+脚本会交互询问 Prometheus、Loki 根地址（包含中心界面显示的随机端口），以及两个中心是否启用 mTLS。通过管道执行时会从 `/dev/tty` 读取输入，不会与下载脚本使用的标准输入冲突。
 
 两种探针按项目需求二选一：只需要主机指标时安装 node_exporter；同时需要指标和日志时安装 Alloy。Alloy 已内置 Unix 主机指标采集，同一服务器不应再重复安装 node_exporter。
 
@@ -131,6 +131,8 @@ Prometheus 和 Loki 的管理菜单均提供“配置管理”：
 - 校验成功后自动 reload/restart；失败时即时清理无效修改并恢复原配置，不生成残留文件。
 - 配置操作及组件安装/更新会清理旧版本遗留的同名 `.rejected-*` 普通文件。
 - 可以单独校验当前配置或重启服务应用配置。
+- 首次安装会分别生成 `10000-59999` 范围内的可用随机监听端口，并写入 `/etc/prometheus/listen.port` 或 `/etc/loki/listen.port`；更新时保持不变。
+- 可以输入指定端口或重新随机生成端口；变更会检查端口占用，失败时恢复原配置和原端口。修改后需要同步更新探针中心地址及防火墙规则。
 - 可以配置、更新或关闭服务端 mTLS；关闭和普通卸载均保留证书，`purge` 才会删除。
 - 组件更新会读取受管 mTLS 状态，不会把 HTTPS 配置覆盖回 HTTP。
 
