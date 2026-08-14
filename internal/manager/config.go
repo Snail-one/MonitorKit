@@ -371,9 +371,9 @@ func (m *Manager) fixTLSOwnershipLocked(ctx context.Context, spec componentSpec,
 func (m *Manager) tlsFilesLocked(name string) []TLSFile {
 	tlsDir := m.path("/etc/" + name + "/tls")
 	return []TLSFile{
-		{Label: "服务端证书", Path: filepath.Join(tlsDir, "server.crt"), Description: "PEM 证书；SAN 必须包含探针访问中心端时使用的域名或 IP"},
-		{Label: "服务端私钥", Path: filepath.Join(tlsDir, "server.key"), Description: "与服务端证书匹配的未加密 PEM 私钥"},
-		{Label: "客户端根 CA", Path: filepath.Join(tlsDir, "client-ca.crt"), Description: "用于验证 Alloy 客户端证书的 CA 公共证书，不要填写 CA 私钥"},
+		{Label: "服务端证书", Path: filepath.Join(tlsDir, "server.crt"), Description: "完整 PEM 服务端证书或证书链；SAN 必须包含探针访问中心端时使用的域名或 IP"},
+		{Label: "服务端私钥", Path: filepath.Join(tlsDir, "server.key"), Description: "与 server.crt 匹配的完整、未加密 PEM 私钥；不要填写 CA 私钥"},
+		{Label: "客户端根 CA", Path: filepath.Join(tlsDir, "client-ca.crt"), Description: "签发 Alloy 客户端证书的 CA 公共证书；不要填写客户端证书、客户端私钥或 CA 私钥"},
 	}
 }
 

@@ -40,6 +40,18 @@ func TestDisplayWidthHandlesChineseAndANSI(t *testing.T) {
 	}
 }
 
+func TestWaitShowsReasonBeforeContinuing(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	var output bytes.Buffer
+	terminal := New(strings.NewReader("\n"), &output)
+	if err := terminal.Wait("确认填写要求后，按回车打开 vim"); err != nil {
+		t.Fatal(err)
+	}
+	if got := output.String(); !strings.Contains(got, "确认填写要求后，按回车打开 vim") {
+		t.Fatalf("wait output = %q", got)
+	}
+}
+
 func TestProgressKeepsStepAndDownloadDetailVisible(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	var output bytes.Buffer

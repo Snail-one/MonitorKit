@@ -336,18 +336,59 @@ func (a *App) configureComponentMTLS(ctx context.Context, component componentVie
 		a.operationError("无法配置 "+component.label+" mTLS", err)
 		return
 	}
-	confirmed, err := a.ui.Confirm("确认配置 mTLS 并依次编辑服务端证书、私钥和客户端 CA")
+	configuration, err := a.manager.Configuration(component.name)
+	if err != nil {
+		a.operationError("无法读取 "+component.label+" mTLS 配置", err)
+		return
+	}
+	tlsDir := configuration.TLSDir
+	a.ui.Clear()
+	a.ui.Title(component.label, "mTLS", "准备证书")
+	a.ui.Card(ui.Neutral, "需要准备 3 个 PEM 文件",
+		ui.Field{
+			Label:  "1. 服务端证书",
+			Value:  tlsDir + "/server.crt",
+			Detail: "填写完整证书链；必须包含 BEGIN/END CERTIFICATE，SAN 包含探针访问时使用的域名或 IP",
+		},
+		ui.Field{
+			Label:  "2. 服务端私钥",
+			Value:  tlsDir + "/server.key",
+			Detail: "填写与 server.crt 匹配且未加密的完整 PEM 私钥；不要填写 CA 私钥",
+		},
+		ui.Field{
+			Label:  "3. 客户端根 CA",
+			Value:  tlsDir + "/client-ca.crt",
+			Detail: "填写签发 Alloy 客户端证书的 CA 公共证书；不要填写 Alloy 客户端证书或任何私钥",
+		},
+		ui.Field{
+			Label:  "编辑方式",
+			Value:  "程序将依次打开 3 次 " + filepathBase(editor),
+			Detail: "每次先显示文件用途；确认后按回车打开编辑器，粘贴完整 PEM 内容并保存退出",
+		},
+		ui.Field{
+			Label:  "安全校验",
+			Value:  "证书格式、证书与私钥匹配关系、服务配置全部通过后才会重启",
+			Detail: "任一文件无效都会即时清理本次修改并恢复原 mTLS 配置",
+		},
+	)
+	confirmed, err := a.ui.Confirm("已准备好上述 3 个 PEM 文件，开始配置")
 	if err != nil || !confirmed {
 		return
 	}
+	step := 0
 	err = a.manager.ConfigureMTLS(ctx, component.name, func(file manager.TLSFile) error {
+		step++
 		a.ui.Clear()
 		a.ui.Title(component.label, "mTLS")
-		a.ui.Card(ui.Neutral, "编辑"+file.Label,
+		a.ui.Card(ui.Neutral, fmt.Sprintf("第 %d/3 步 · 编辑%s", step, file.Label),
 			ui.Field{Label: "文件", Value: file.Path},
-			ui.Field{Label: "要求", Value: file.Description},
+			ui.Field{Label: "填写内容", Value: file.Description},
+			ui.Field{Label: "操作", Value: "粘贴或替换为完整 PEM 内容，然后保存并退出编辑器"},
 			ui.Field{Label: "编辑器", Value: filepathBase(editor)},
 		)
+		if err := a.ui.Wait("确认填写要求后，按回车打开 " + filepathBase(editor)); err != nil {
+			return err
+		}
 		return openTextEditor(ctx, editor, file.Path)
 	})
 	if err != nil {

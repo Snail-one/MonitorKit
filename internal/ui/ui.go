@@ -169,9 +169,16 @@ func (u *UI) Confirm(prompt string) (bool, error) {
 }
 
 func (u *UI) Pause() {
+	_ = u.Wait("按回车继续")
+}
+
+// Wait keeps important instructions visible until the user explicitly
+// acknowledges them. It is used before handing control to a full-screen editor.
+func (u *UI) Wait(prompt string) error {
 	fmt.Fprintln(u.out)
-	fmt.Fprint(u.out, u.paint(dim, "按回车继续…")+" ")
-	_, _ = u.reader.ReadString('\n')
+	fmt.Fprint(u.out, u.paint(dim, strings.TrimSpace(prompt)+"…")+" ")
+	_, err := u.reader.ReadString('\n')
+	return err
 }
 
 func (u *UI) InvalidChoice() {
