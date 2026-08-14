@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 
 更新会替换二进制和 systemd unit；已经存在的 `prometheus.yml` 会保留，不会被默认配置覆盖。存在 `mtls.enabled` 时，新 unit 会继续引用 `web.yml`，不会在更新后退回 HTTP。
 
-从配置菜单直接编辑 `prometheus.yml` 时，原配置会暂时备份。新配置通过 `promtool` 校验后执行 reload；失败时恢复原配置，并在同一目录保留 `.rejected-时间` 文件供排查。
+从配置菜单直接编辑 `prometheus.yml` 时，原配置内容只在操作期间保存。新配置通过 `promtool` 校验后执行 reload；失败时即时清理无效修改并恢复原配置，不生成残留文件。配置操作及安装/更新会删除旧版本遗留的同名 `.rejected-*` 普通文件。
 
 普通卸载会：
 
@@ -122,7 +122,7 @@ prometheus 用户与组
 
 更新会替换二进制和 systemd unit；已经存在的 `loki.yml` 会保留。存在 `mtls.enabled` 时，新 unit 会继续带有 Loki HTTPS 与客户端证书验证参数。
 
-从配置菜单直接编辑 `loki.yml` 时，会先保存原内容，再使用 Loki 的 `-verify-config=true` 校验并重启。校验或启动失败时恢复原配置，并保留 `.rejected-时间` 文件。
+从配置菜单直接编辑 `loki.yml` 时，会在内存中保存原内容，再使用 Loki 的 `-verify-config=true` 校验并重启。校验或启动失败时即时清理无效修改并恢复原配置，不保留拒绝文件。
 
 普通卸载会删除二进制和 unit，并停止、禁用服务，但保留：
 

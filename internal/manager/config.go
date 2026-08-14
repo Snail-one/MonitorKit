@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const mtlsMarkerName = "mtls.enabled"
@@ -53,47 +52,43 @@ func (m *Manager) Configuration(name string) (Configuration, error) {
 	}, nil
 }
 
-func (m *Manager) EditConfig(ctx context.Context, name string, edit EditFunc) (string, error) {
+func (m *Manager) EditConfig(ctx context.Context, name string, edit EditFunc) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if edit == nil {
-		return "", errors.New("配置编辑器不能为空")
+		return errors.New("配置编辑器不能为空")
 	}
 	spec, configPath, err := m.configTargetLocked(name)
 	if err != nil {
-		return "", err
+		return err
 	}
 	original, err := snapshotFile(configPath)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if err := edit(configPath); err != nil {
 		_ = restoreSnapshot(original)
-		return "", fmt.Errorf("编辑器退出异常，原配置已恢复：%w", err)
+		return fmt.Errorf("编辑器退出异常，原配置已恢复：%w", err)
 	}
 	if err := os.Chmod(configPath, original.mode.Perm()); err != nil {
 		_ = restoreSnapshot(original)
-		return "", fmt.Errorf("恢复配置文件权限：%w", err)
+		return fmt.Errorf("恢复配置文件权限：%w", err)
 	}
 	if err := m.fixConfigOwnershipLocked(ctx, spec, configPath); err != nil {
 		_ = restoreSnapshot(original)
-		return "", err
+		return err
 	}
 	if err := m.validateAndApplyLocked(ctx, spec, configPath); err != nil {
-		rejectedPath, preserveErr := preserveRejectedConfig(configPath, original.mode)
 		if restoreErr := restoreSnapshot(original); restoreErr != nil {
-			return rejectedPath, fmt.Errorf("新配置无效（%v），且恢复原配置失败：%w", err, restoreErr)
+			return fmt.Errorf("新配置无效（%v），且恢复原配置失败：%w", err, restoreErr)
 		}
 		_ = m.fixConfigOwnershipLocked(ctx, spec, configPath)
 		if m.isLiveRoot() {
 			_ = m.validateAndApplyLocked(ctx, spec, configPath)
 		}
-		if preserveErr != nil {
-			return "", fmt.Errorf("新配置未应用且原配置已恢复：%w；保存无效配置失败：%v", err, preserveErr)
-		}
-		return rejectedPath, fmt.Errorf("新配置未通过校验或应用，原配置已恢复；无效内容保存在 %s：%w", rejectedPath, err)
+		return fmt.Errorf("新配置未通过校验或应用，已即时清理并恢复原配置：%w", err)
 	}
-	return "", nil
+	return nil
 }
 
 func (m *Manager) ValidateConfig(ctx context.Context, name string) error {
@@ -293,6 +288,9 @@ func (m *Manager) configTargetLocked(name string) (componentSpec, string, error)
 	} else if err != nil {
 		return componentSpec{}, "", err
 	}
+	if err := removeRejectedConfigs(configPath); err != nil {
+		return componentSpec{}, "", fmt.Errorf("清理历史无效配置：%w", err)
+	}
 	return spec, configPath, nil
 }
 
@@ -490,11 +488,27 @@ func restoreSnapshots(snapshots []fileSnapshot) error {
 	return restoredErr
 }
 
-func preserveRejectedConfig(path string, mode os.FileMode) (string, error) {
-	content, err := os.ReadFile(path)
+func removeRejectedConfigs(configPath string) error {
+	directory := filepath.Dir(configPath)
+	prefix := filepath.Base(configPath) + ".rejected-"
+	entries, err := os.ReadDir(directory)
 	if err != nil {
-		return "", err
+		return err
 	}
-	rejectedPath := fmt.Sprintf("%s.rejected-%s", path, time.Now().UTC().Format("20060102T150405Z"))
-	return rejectedPath, atomicWrite(rejectedPath, content, mode.Perm())
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), prefix) || entry.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+		if err := os.Remove(filepath.Join(directory, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }

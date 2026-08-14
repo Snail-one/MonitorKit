@@ -28,7 +28,7 @@ func TestEditConfigRestoresOriginalWhenEditorFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := stageComponentConfig(t, mgr, "prometheus", "original\n")
-	_, err = mgr.EditConfig(context.Background(), "prometheus", func(path string) error {
+	err = mgr.EditConfig(context.Background(), "prometheus", func(path string) error {
 		if err := os.WriteFile(path, []byte("partial edit\n"), 0600); err != nil {
 			return err
 		}
@@ -52,7 +52,7 @@ func TestEditConfigAppliesValidStagedChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := stageComponentConfig(t, mgr, "loki", "original\n")
-	if _, err := mgr.EditConfig(context.Background(), "loki", func(path string) error {
+	if err := mgr.EditConfig(context.Background(), "loki", func(path string) error {
 		return os.WriteFile(path, []byte("updated\n"), 0600)
 	}); err != nil {
 		t.Fatal(err)
@@ -70,6 +70,37 @@ func TestEditConfigAppliesValidStagedChange(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0640 {
 		t.Fatalf("config mode = %o, want 640", info.Mode().Perm())
+	}
+}
+
+func TestRemoveRejectedConfigsDeletesOnlyMatchingRegularFiles(t *testing.T) {
+	directory := t.TempDir()
+	configPath := filepath.Join(directory, "prometheus.yml")
+	if err := os.WriteFile(configPath, []byte("config\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	rejectedPath := configPath + ".rejected-old"
+	unrelatedPath := filepath.Join(directory, "loki.yml.rejected-old")
+	for path, content := range map[string]string{rejectedPath: "invalid\n", unrelatedPath: "keep\n"} {
+		if err := os.WriteFile(path, []byte(content), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rejectedDirectory := configPath + ".rejected-directory"
+	if err := os.Mkdir(rejectedDirectory, 0750); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := removeRejectedConfigs(configPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(rejectedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("matching rejected file still exists: %v", err)
+	}
+	for _, path := range []string{unrelatedPath, rejectedDirectory} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("unrelated path was removed: %s: %v", path, err)
+		}
 	}
 }
 

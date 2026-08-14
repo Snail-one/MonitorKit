@@ -245,11 +245,11 @@ func (a *App) editComponentConfig(ctx context.Context, component componentView) 
 	if err != nil || !confirmed {
 		return
 	}
-	_, err = a.manager.EditConfig(ctx, component.name, func(path string) error {
+	err = a.manager.EditConfig(ctx, component.name, func(path string) error {
 		a.ui.Card(ui.Neutral, "正在编辑"+component.label,
 			ui.Field{Label: "编辑器", Value: filepathBase(editor)},
 			ui.Field{Label: "配置文件", Value: path},
-			ui.Field{Label: "安全机制", Value: "校验失败自动恢复原配置，并保留无效内容"},
+			ui.Field{Label: "安全机制", Value: "校验失败即时清理修改并恢复原配置"},
 		)
 		return openTextEditor(ctx, editor, path)
 	})

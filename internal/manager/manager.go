@@ -173,6 +173,7 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 	} else if err != nil {
 		return Status{}, fmt.Errorf("检查配置文件：%w", err)
 	}
+	_ = removeRejectedConfigs(configPath)
 	unitPath := filepath.Join(unitDir, name+".service")
 	if err := atomicWrite(unitPath, []byte(spec.unit(mtlsEnabledLocked(m, name))), 0644); err != nil {
 		return Status{}, fmt.Errorf("写入 systemd 单元：%w", err)
