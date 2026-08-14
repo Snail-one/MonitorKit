@@ -231,11 +231,11 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		}
 		a.ui.Card(ui.Neutral, component.label+"配置", configFields...)
 		a.ui.Blank()
-		a.ui.Option("1", "编辑主配置", a.ui.Badge("vim/nano/vi", true))
+		a.ui.Option("1", "编辑主配置", editorBadge(a.ui))
 		a.ui.Option("2", "校验当前配置", "")
 		a.ui.Option("3", "重启并应用配置", "")
-		a.ui.Option("4", "修改监听端口", a.ui.Badge("当前 "+portText(configuration.ListenPort), true))
-		a.ui.Option("5", "配置或更新 mTLS", a.ui.Badge("证书校验", true))
+		a.ui.Option("4", "修改监听端口", a.ui.Badge(portText(configuration.ListenPort), true))
+		a.ui.Option("5", "配置或更新 mTLS", a.ui.Badge(enabledText(configuration.MTLSEnabled), configuration.MTLSEnabled))
 		if component.name == "prometheus" {
 			remoteWriteLabel := "开启远程写入"
 			remoteWriteBadge := a.ui.Badge("已关闭", false)
@@ -583,6 +583,14 @@ func selectTextEditor() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("未找到 vim、nano 或 vi，请先安装任意一个编辑器")
+}
+
+func editorBadge(terminal *ui.UI) string {
+	editor, err := selectTextEditor()
+	if err != nil {
+		return terminal.Badge("未安装", false)
+	}
+	return terminal.Badge(filepathBase(editor), true)
 }
 
 func openTextEditor(ctx context.Context, editor, path string) error {

@@ -51,6 +51,59 @@ func TestConfigurationAndInstallAreSeparateComponentActions(t *testing.T) {
 	}
 }
 
+func TestConfigurationMenuShowsPortAndMTLSStateBadges(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"usr/local/bin/prometheus":      "installed\n",
+		"etc/prometheus/prometheus.yml": "scrape_configs: []\n",
+		"etc/prometheus/listen.port":    "48680\n",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var disabled bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &disabled))
+	if err := application.configurationMenu(context.Background(), componentViews["prometheus"]); err != nil {
+		t.Fatal(err)
+	}
+	got := disabled.String()
+	for _, want := range []string{"修改监听端口", "[48680]", "配置或更新 mTLS", "[已关闭]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("disabled mTLS menu does not contain %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "[当前 48680]") || strings.Contains(got, "[证书校验]") {
+		t.Fatalf("disabled mTLS menu still uses old badges:\n%s", got)
+	}
+
+	marker := filepath.Join(root, "etc/prometheus/tls/mtls.enabled")
+	if err := os.MkdirAll(filepath.Dir(marker), 0750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(marker, []byte("enabled\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	var enabled bytes.Buffer
+	application = New(mgr, ui.New(strings.NewReader("q\n"), &enabled))
+	if err := application.configurationMenu(context.Background(), componentViews["prometheus"]); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(enabled.String(), "[已开启]") {
+		t.Fatalf("enabled mTLS menu does not show on state:\n%s", enabled.String())
+	}
+}
+
 func TestComponentAddressFollowsMTLSState(t *testing.T) {
 	if got := componentAddress(false, 23100); got != "http://服务器地址:23100" {
 		t.Fatalf("plain address = %q", got)
@@ -77,6 +130,45 @@ func TestSelectTextEditorUsesSupportedPriority(t *testing.T) {
 	}
 	if filepath.Base(editor) != "nano" {
 		t.Fatalf("selected editor = %q, want nano before vi", editor)
+	}
+}
+
+func TestConfigurationMenuShowsDetectedEditorBadge(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "nano"), []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", directory)
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"usr/local/bin/prometheus":      "installed\n",
+		"etc/prometheus/prometheus.yml": "scrape_configs: []\n",
+		"etc/prometheus/listen.port":    "48680\n",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &output))
+	if err := application.configurationMenu(context.Background(), componentViews["prometheus"]); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	if !strings.Contains(got, "编辑主配置") || !strings.Contains(got, "[nano]") {
+		t.Fatalf("menu does not show detected editor:\n%s", got)
+	}
+	if strings.Contains(got, "[vim/nano/vi]") {
+		t.Fatalf("menu still uses generic editor badge:\n%s", got)
 	}
 }
 
