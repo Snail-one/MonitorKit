@@ -64,6 +64,19 @@ if [[ "${LOKI_MTLS_ENABLED}" != "0" ]]; then
   exit 1
 fi
 
+printf '1\n' >"${TEST_INPUT}"
+INTERACTIVE_DEVICE="${TEST_INPUT}"
+PROMETHEUS_MTLS_ENABLED=1
+LOKI_MTLS_ENABLED=1
+ALLOY_MTLS_CERT_MODE_PRESET=0
+ALLOY_MTLS_CERT_MODE="separate"
+RETURN_TO_MAIN=0
+choose_mtls_certificate_mode >/dev/null 2>&1
+if [[ "${ALLOY_MTLS_CERT_MODE}" != "shared" ]]; then
+  printf 'Alloy 没有接受一套共享证书模式\n' >&2
+  exit 1
+fi
+
 printf 'q\n' >"${TEST_INPUT}"
 INTERACTIVE_DEVICE="${TEST_INPUT}"
 SELECTED_ACTION="install"
@@ -102,6 +115,10 @@ done
 for expected in \
   'choose_maintenance_action()' \
   'configure_backend_certificates()' \
+  'configure_shared_certificates()' \
+  'choose_mtls_certificate_mode()' \
+  'ALLOY_MTLS_CERT_MODE=separate' \
+  '共享证书已分别写入 Prometheus 与 Loki 的受管文件' \
   'begin_config_transaction()' \
   'restore_config_transaction()' \
   'PACKAGE_WAS_INSTALLED' \

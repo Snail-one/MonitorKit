@@ -18,6 +18,8 @@ docs/                         架构和运维文档
 
 node_exporter 使用 Prometheus 拉取模型：中心端探针清单保存在 `/etc/prometheus/probes/inventory.json`，每个启用目标渲染为独立的受管 `scrape_config`，因此可以为每台服务器设置不同地址、端口和 mTLS 文件。Alloy 使用主动推送模型，不生成抓取目标；所有 Alloy 指标统一使用 `job="alloy-one"`，并将 `/etc/alloy/monitor.name` 中的唯一名称写入指标的 `instance`、`host` 标签及日志的 `host` 标签。指标原生提供的 `nodename` 保持系统主机名。界面同时读取 Prometheus/Loki 当前端口和安全状态作为安装参数提示。
 
+Prometheus 与 Loki 同时使用 mTLS 时，Alloy 支持 `shared` 和 `separate` 两种客户端证书管理模式。`shared` 只录入和校验一套 CA、完整客户端证书、私钥，再将相同内容分别写入两组受管文件；它要求该 CA 能校验两个中心的服务端证书，并且两个中心都信任该客户端证书的签发 CA。`separate` 分别录入两套证书，是默认推荐模式。两种模式都为 Prometheus 和 Loki 单独保存 TLS `server_name`。
+
 配置编辑通过受限的 `vim → nano → vi` 编辑器选择进入：Manager 在编辑期间保存原内容，编辑后调用组件自己的校验器，并在校验成功后 reload/restart。失败修改即时清理，活动配置自动回滚。mTLS 与 Prometheus 远程写入分别使用受管状态标记生成组件 unit，因此二进制更新不会丢失独立开关状态。远程写入在 HTTPS/mTLS 和 HTTP 下都能独立启用；交互层会对 HTTP 明文传输显示风险说明并要求再次确认。
 
 ## 扩展中心组件

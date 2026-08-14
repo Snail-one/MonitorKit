@@ -14,11 +14,13 @@ PROMETHEUS_URL_PRESET=0
 LOKI_URL_PRESET=0
 PROMETHEUS_MTLS_MODE_PRESET=0
 LOKI_MTLS_MODE_PRESET=0
+ALLOY_MTLS_CERT_MODE_PRESET=0
 MONITOR_NAME_PRESET=0
 [[ -n "${PROMETHEUS_URL+x}" ]] && PROMETHEUS_URL_PRESET=1
 [[ -n "${LOKI_URL+x}" ]] && LOKI_URL_PRESET=1
 [[ -n "${PROMETHEUS_MTLS_ENABLED+x}" ]] && PROMETHEUS_MTLS_MODE_PRESET=1
 [[ -n "${LOKI_MTLS_ENABLED+x}" ]] && LOKI_MTLS_MODE_PRESET=1
+[[ -n "${ALLOY_MTLS_CERT_MODE+x}" ]] && ALLOY_MTLS_CERT_MODE_PRESET=1
 [[ -n "${MONITOR_NAME+x}" ]] && MONITOR_NAME_PRESET=1
 
 PROMETHEUS_URL="${PROMETHEUS_URL:-}"
@@ -32,6 +34,10 @@ LOKI_MTLS_CA_FILE="${LOKI_MTLS_CA_FILE:-}"
 LOKI_MTLS_CERT_FILE="${LOKI_MTLS_CERT_FILE:-}"
 LOKI_MTLS_KEY_FILE="${LOKI_MTLS_KEY_FILE:-}"
 LOKI_TLS_SERVER_NAME="${LOKI_TLS_SERVER_NAME:-}"
+ALLOY_MTLS_CERT_MODE="${ALLOY_MTLS_CERT_MODE:-}"
+ALLOY_MTLS_CA_FILE="${ALLOY_MTLS_CA_FILE:-}"
+ALLOY_MTLS_CERT_FILE="${ALLOY_MTLS_CERT_FILE:-}"
+ALLOY_MTLS_KEY_FILE="${ALLOY_MTLS_KEY_FILE:-}"
 
 RESET=""
 BOLD=""
@@ -149,6 +155,18 @@ read_editable() {
 
 exit_card() { success_card "$1" "系统修改" "无"; }
 
+mtls_certificate_mode_label() {
+  if [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" && "${LOKI_MTLS_ENABLED}" == "1" ]]; then
+    [[ "${ALLOY_MTLS_CERT_MODE}" == "shared" ]] && printf '一套证书（分别落盘）' || printf '两套证书（分别管理）'
+  elif [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]]; then
+    printf '仅 Prometheus 使用证书'
+  elif [[ "${LOKI_MTLS_ENABLED}" == "1" ]]; then
+    printf '仅 Loki 使用证书'
+  else
+    printf '未启用'
+  fi
+}
+
 print_completion_card() {
   local title="$1"
   success_card "${title}" \
@@ -158,6 +176,7 @@ print_completion_card() {
     "日志中心" "${LOKI_URL}" \
     "Prometheus mTLS" "$([[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] && printf '已启用' || printf '未启用（HTTP，未加密）')" \
     "Loki mTLS" "$([[ "${LOKI_MTLS_ENABLED}" == "1" ]] && printf '已启用' || printf '未启用（HTTP，未加密）')" \
+    "mTLS 证书模式" "$(mtls_certificate_mode_label)" \
     "配置文件" "${CONFIG_FILE}"
 }
 
@@ -190,6 +209,10 @@ Grafana Alloy 指标与日志统一探针维护脚本。
 
 无人值守配置变量：
   MONITOR_NAME=debian-web-01
+  ALLOY_MTLS_CERT_MODE=separate       # shared 或 separate
+  ALLOY_MTLS_CA_FILE=/root/shared-ca.crt
+  ALLOY_MTLS_CERT_FILE=/root/shared-alloy.crt
+  ALLOY_MTLS_KEY_FILE=/root/shared-alloy.key
   PROMETHEUS_URL=https://monitor.example.com:24567
   PROMETHEUS_MTLS_ENABLED=1
   PROMETHEUS_MTLS_CA_FILE=/root/prometheus-ca.crt
@@ -202,6 +225,10 @@ Grafana Alloy 指标与日志统一探针维护脚本。
   LOKI_MTLS_CERT_FILE=/root/loki-alloy.crt
   LOKI_MTLS_KEY_FILE=/root/loki-alloy.key
   LOKI_TLS_SERVER_NAME=logs.example.com
+
+shared 模式只需提供 ALLOY_MTLS_CA_FILE、ALLOY_MTLS_CERT_FILE 和
+ALLOY_MTLS_KEY_FILE；内容会校验后分别写入 Prometheus/Loki 对应文件。
+separate 模式分别使用 PROMETHEUS_MTLS_* 和 LOKI_MTLS_* 三个证书变量。
 
 普通卸载保留 /etc/alloy 和 /var/lib/alloy；purge 会删除这两个目录。
 两种卸载方式均不清理 Grafana 软件源、签名密钥、包缓存和历史日志。
@@ -484,6 +511,14 @@ load_existing_settings() {
     LOKI_MTLS_ENABLED=0
     if grep -qF "${TLS_DIR}/loki-ca.crt" "${CONFIG_FILE}"; then
       LOKI_MTLS_ENABLED=1
+    fi
+  fi
+  if [[ "${ALLOY_MTLS_CERT_MODE_PRESET}" == "0" && \
+        "${PROMETHEUS_MTLS_ENABLED}" == "1" && "${LOKI_MTLS_ENABLED}" == "1" ]]; then
+    if command -v cmp >/dev/null 2>&1 && shared_certificates_installed; then
+      ALLOY_MTLS_CERT_MODE="shared"
+    else
+      ALLOY_MTLS_CERT_MODE="separate"
     fi
   fi
 }
@@ -843,6 +878,106 @@ configure_backend_certificates() {
   printf -v "${key_variable}" '%s' "${key_destination}"
 }
 
+shared_certificates_installed() {
+  local suffix
+  for suffix in ca.crt client.crt client.key; do
+    [[ -s "${TLS_DIR}/prometheus-${suffix}" && -s "${TLS_DIR}/loki-${suffix}" ]] || return 1
+    cmp -s -- "${TLS_DIR}/prometheus-${suffix}" "${TLS_DIR}/loki-${suffix}" || return 1
+  done
+}
+
+normalize_mtls_certificate_mode() {
+  case "${ALLOY_MTLS_CERT_MODE,,}" in
+    shared|one|1) ALLOY_MTLS_CERT_MODE="shared" ;;
+    separate|split|2|"") ALLOY_MTLS_CERT_MODE="separate" ;;
+    *) die "ALLOY_MTLS_CERT_MODE 只支持 shared 或 separate" ;;
+  esac
+}
+
+choose_mtls_certificate_mode() {
+  if [[ "${PROMETHEUS_MTLS_ENABLED}" != "1" || "${LOKI_MTLS_ENABLED}" != "1" ]]; then
+    ALLOY_MTLS_CERT_MODE="separate"
+    return 0
+  fi
+
+  if [[ "${ALLOY_MTLS_CERT_MODE_PRESET}" == "1" ]]; then
+    normalize_mtls_certificate_mode
+    return 0
+  fi
+  if shared_certificates_installed; then
+    ALLOY_MTLS_CERT_MODE="shared"
+  else
+    ALLOY_MTLS_CERT_MODE="separate"
+  fi
+  detect_interactive_device || return 0
+
+  menu_section "请选择 Prometheus/Loki 客户端证书管理方式"
+  menu_option "1" "使用一套证书" "录入一次，分别写入两个服务的受管文件"
+  menu_option "2" "分别配置证书" "推荐；两个服务分别录入和更新"
+  menu_exit "0/q" "取消本次配置"
+  while true; do
+    local choice=""
+    read_editable choice "请选择 [1-2]（默认 $([[ "${ALLOY_MTLS_CERT_MODE}" == "shared" ]] && printf 1 || printf 2)）："
+    case "${choice}" in
+      "")
+        result "$([[ "${ALLOY_MTLS_CERT_MODE}" == "shared" ]] && printf '将使用一套 mTLS 证书' || printf 'Prometheus 与 Loki 证书将分别管理')"
+        return 0
+        ;;
+      1)
+        ALLOY_MTLS_CERT_MODE="shared"
+        warning_card "共享证书前置条件" \
+          "服务端 CA" "同一 CA 证书必须能够校验 Prometheus 和 Loki 服务端证书" \
+          "客户端证书" "Prometheus 和 Loki 接收端必须都信任该客户端证书的签发 CA" \
+          "落盘方式" "相同内容仍分别写入 prometheus-* 与 loki-* 文件"
+        return 0
+        ;;
+      2)
+        ALLOY_MTLS_CERT_MODE="separate"
+        result "Prometheus 与 Loki 证书将分别管理"
+        return 0
+        ;;
+      0|q|Q)
+        RETURN_TO_MAIN=1
+        warning_card "配置已取消" \
+          "已保留" "操作前的 Alloy 配置和证书" \
+          "系统修改" "无"
+        return 0
+        ;;
+      *) invalid_choice ;;
+    esac
+  done
+}
+
+configure_shared_certificates() {
+  local shared_values="${ALLOY_MTLS_CA_FILE}${ALLOY_MTLS_CERT_FILE}${ALLOY_MTLS_KEY_FILE}"
+  local prometheus_ca="${TLS_DIR}/prometheus-ca.crt"
+  local prometheus_cert="${TLS_DIR}/prometheus-client.crt"
+  local prometheus_key="${TLS_DIR}/prometheus-client.key"
+  local loki_ca="${TLS_DIR}/loki-ca.crt"
+  local loki_cert="${TLS_DIR}/loki-client.crt"
+  local loki_key="${TLS_DIR}/loki-client.key"
+
+  if [[ -n "${shared_values}" ]]; then
+    [[ -n "${ALLOY_MTLS_CA_FILE}" && -n "${ALLOY_MTLS_CERT_FILE}" && -n "${ALLOY_MTLS_KEY_FILE}" ]] || \
+      die "共享 mTLS 模式必须同时提供 ALLOY_MTLS_CA_FILE、ALLOY_MTLS_CERT_FILE 和 ALLOY_MTLS_KEY_FILE"
+    PROMETHEUS_MTLS_CA_FILE="${ALLOY_MTLS_CA_FILE}"
+    PROMETHEUS_MTLS_CERT_FILE="${ALLOY_MTLS_CERT_FILE}"
+    PROMETHEUS_MTLS_KEY_FILE="${ALLOY_MTLS_KEY_FILE}"
+  fi
+
+  configure_backend_certificates PROMETHEUS "Prometheus/Loki 共享"
+  [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+  validate_certificate_bundle "Prometheus/Loki 共享" "${prometheus_ca}" "${prometheus_cert}" "${prometheus_key}"
+  install_tls_file "${prometheus_ca}" "${loki_ca}"
+  install_tls_file "${prometheus_cert}" "${loki_cert}"
+  install_tls_file "${prometheus_key}" "${loki_key}"
+  validate_certificate_bundle Loki "${loki_ca}" "${loki_cert}" "${loki_key}"
+  LOKI_MTLS_CA_FILE="${loki_ca}"
+  LOKI_MTLS_CERT_FILE="${loki_cert}"
+  LOKI_MTLS_KEY_FILE="${loki_key}"
+  result "共享证书已分别写入 Prometheus 与 Loki 的受管文件"
+}
+
 normalize_mtls_mode() {
   local variable_name="$1"
   local value="${!variable_name:-}"
@@ -909,6 +1044,8 @@ collect_connection_settings() {
   fi
   choose_backend_mtls_mode PROMETHEUS Prometheus
   choose_backend_mtls_mode LOKI Loki
+  choose_mtls_certificate_mode
+  [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
 
   [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] || prometheus_scheme="http"
   [[ "${LOKI_MTLS_ENABLED}" == "1" ]] || loki_scheme="http"
@@ -931,8 +1068,13 @@ prepare_mtls_configuration() {
 
   if [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]]; then
     printf '\n'
-    step "配置 Prometheus mTLS"
-    configure_backend_certificates PROMETHEUS Prometheus
+    if [[ "${ALLOY_MTLS_CERT_MODE}" == "shared" ]]; then
+      step "配置 Prometheus/Loki 共享 mTLS 证书"
+      configure_shared_certificates
+    else
+      step "配置 Prometheus mTLS"
+      configure_backend_certificates PROMETHEUS Prometheus
+    fi
     [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
     prompt_server_name PROMETHEUS_TLS_SERVER_NAME Prometheus "${PROMETHEUS_URL}" "${prometheus_force_prompt}"
     [[ "${PROMETHEUS_TLS_SERVER_NAME}" =~ ^[A-Za-z0-9._-]+$ ]] || die "Prometheus TLS server_name 格式无效"
@@ -944,9 +1086,14 @@ prepare_mtls_configuration() {
 
   if [[ "${LOKI_MTLS_ENABLED}" == "1" ]]; then
     printf '\n'
-    step "配置 Loki mTLS"
-    configure_backend_certificates LOKI Loki
-    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+    if [[ "${ALLOY_MTLS_CERT_MODE}" == "shared" ]]; then
+      step "配置 Loki TLS 证书校验名称"
+      result "Loki 已使用与 Prometheus 内容相同的客户端证书文件"
+    else
+      step "配置 Loki mTLS"
+      configure_backend_certificates LOKI Loki
+      [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+    fi
     prompt_server_name LOKI_TLS_SERVER_NAME Loki "${LOKI_URL}" "${loki_force_prompt}"
     [[ "${LOKI_TLS_SERVER_NAME}" =~ ^[A-Za-z0-9._-]+$ ]] || die "Loki TLS server_name 格式无效"
   else
@@ -1074,11 +1221,15 @@ configure_probe() {
   if [[ "${mode}" == "reconfigure" ]] && detect_interactive_device; then
     force_prompt=1
   fi
-  require_commands awk cat chmod chown cp getent install mktemp openssl readlink rm sha256sum systemctl usermod
+  require_commands awk cat chmod chown cmp cp getent install mktemp openssl readlink rm sha256sum systemctl usermod
   [[ "${mode}" != "install" ]] || require_commands curl
   load_existing_settings
   begin_config_transaction
   collect_connection_settings "${force_prompt}"
+  if [[ "${RETURN_TO_MAIN}" == "1" ]]; then
+    restore_config_transaction
+    return 0
+  fi
 
   if [[ "${mode}" == "install" ]]; then
     printf '\n'
@@ -1144,6 +1295,7 @@ show_status() {
     "Prometheus mTLS" "${prometheus_status}" \
     "Loki" "${LOKI_URL:-未配置}" \
     "Loki mTLS" "${loki_status}" \
+    "mTLS 证书模式" "$(mtls_certificate_mode_label)" \
     "配置文件" "${CONFIG_FILE}" \
     "证书目录" "${TLS_DIR}" \
     "数据目录" "${DATA_DIR}"
