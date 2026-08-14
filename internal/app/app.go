@@ -467,19 +467,19 @@ func (a *App) configureComponentMTLS(ctx context.Context, component componentVie
 	a.ui.Title(component.label, "mTLS", "准备证书")
 	a.ui.Card(ui.Neutral, "需要准备 3 个 PEM 文件",
 		ui.Field{
-			Label:  "1. 服务端证书",
+			Label:  "1. 客户端根 CA",
+			Value:  tlsDir + "/client-ca.crt",
+			Detail: "填写签发 Alloy 客户端证书的 CA 公共证书；不要填写 Alloy 客户端证书或任何私钥",
+		},
+		ui.Field{
+			Label:  "2. 完整服务端证书",
 			Value:  tlsDir + "/server.crt",
 			Detail: "填写完整证书链；必须包含 BEGIN/END CERTIFICATE，SAN 包含探针访问时使用的域名或 IP",
 		},
 		ui.Field{
-			Label:  "2. 服务端私钥",
+			Label:  "3. 服务端私钥",
 			Value:  tlsDir + "/server.key",
 			Detail: "填写与 server.crt 匹配且未加密的完整 PEM 私钥；不要填写 CA 私钥",
-		},
-		ui.Field{
-			Label:  "3. 客户端根 CA",
-			Value:  tlsDir + "/client-ca.crt",
-			Detail: "填写签发 Alloy 客户端证书的 CA 公共证书；不要填写 Alloy 客户端证书或任何私钥",
 		},
 		ui.Field{
 			Label:  "编辑方式",
@@ -1081,7 +1081,7 @@ func (a *App) updateProbeTLS(ctx context.Context, probe manager.Probe) {
 		a.operationError("无法更新探针证书", err)
 		return
 	}
-	confirmed, err := a.ui.Confirm("确认依次更新 3 个 Prometheus 抓取客户端 PEM 文件")
+	confirmed, err := a.ui.Confirm("确认按 CA 证书 → 完整客户端证书 → 私钥的顺序更新 3 个 Prometheus 抓取 PEM 文件")
 	if err != nil || !confirmed {
 		return
 	}

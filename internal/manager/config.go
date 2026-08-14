@@ -378,9 +378,9 @@ func (m *Manager) fixTLSOwnershipLocked(ctx context.Context, spec componentSpec,
 func (m *Manager) tlsFilesLocked(name string) []TLSFile {
 	tlsDir := m.path("/etc/" + name + "/tls")
 	return []TLSFile{
-		{Label: "服务端证书", Path: filepath.Join(tlsDir, "server.crt"), Description: "完整 PEM 服务端证书或证书链；SAN 必须包含探针访问中心端时使用的域名或 IP"},
-		{Label: "服务端私钥", Path: filepath.Join(tlsDir, "server.key"), Description: "与 server.crt 匹配的完整、未加密 PEM 私钥；不要填写 CA 私钥"},
 		{Label: "客户端根 CA", Path: filepath.Join(tlsDir, "client-ca.crt"), Description: "签发 Alloy 客户端证书的 CA 公共证书；不要填写客户端证书、客户端私钥或 CA 私钥"},
+		{Label: "完整服务端证书", Path: filepath.Join(tlsDir, "server.crt"), Description: "完整 PEM 服务端证书或证书链；SAN 必须包含探针访问中心端时使用的域名或 IP"},
+		{Label: "服务端私钥", Path: filepath.Join(tlsDir, "server.key"), Description: "与 server.crt 匹配的完整、未加密 PEM 私钥；不要填写 CA 私钥"},
 	}
 }
 
@@ -423,19 +423,19 @@ func validateTLSMaterial(ctx context.Context, files []TLSFile) error {
 		}
 	}
 	if err := run(ctx, "openssl", "x509", "-in", files[0].Path, "-noout"); err != nil {
-		return fmt.Errorf("服务端证书格式无效：%w", err)
-	}
-	if err := run(ctx, "openssl", "pkey", "-in", files[1].Path, "-noout", "-passin", "pass:"); err != nil {
-		return fmt.Errorf("服务端私钥无效或已加密：%w", err)
-	}
-	if err := run(ctx, "openssl", "x509", "-in", files[2].Path, "-noout"); err != nil {
 		return fmt.Errorf("客户端根 CA 格式无效：%w", err)
 	}
-	certPublicKey, err := commandOutput(ctx, "openssl", "x509", "-in", files[0].Path, "-pubkey", "-noout")
+	if err := run(ctx, "openssl", "x509", "-in", files[1].Path, "-noout"); err != nil {
+		return fmt.Errorf("服务端证书格式无效：%w", err)
+	}
+	if err := run(ctx, "openssl", "pkey", "-in", files[2].Path, "-noout", "-passin", "pass:"); err != nil {
+		return fmt.Errorf("服务端私钥无效或已加密：%w", err)
+	}
+	certPublicKey, err := commandOutput(ctx, "openssl", "x509", "-in", files[1].Path, "-pubkey", "-noout")
 	if err != nil {
 		return err
 	}
-	privatePublicKey, err := commandOutput(ctx, "openssl", "pkey", "-in", files[1].Path, "-pubout", "-passin", "pass:")
+	privatePublicKey, err := commandOutput(ctx, "openssl", "pkey", "-in", files[2].Path, "-pubout", "-passin", "pass:")
 	if err != nil {
 		return err
 	}

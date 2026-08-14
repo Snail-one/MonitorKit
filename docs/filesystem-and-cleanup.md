@@ -28,9 +28,9 @@
 ├── remote-write.enabled                 # 仅开启远程写入接收时存在
 ├── web.yml                              # 配置过 Prometheus mTLS 后存在
 ├── tls/
+│   ├── client-ca.crt
 │   ├── server.crt
 │   ├── server.key
-│   ├── client-ca.crt
 │   └── mtls.enabled                     # 仅 mTLS 当前启用时存在
 └── probes/
     ├── inventory.json                   # 添加过 node_exporter 接入后存在
@@ -43,17 +43,17 @@
 ├── loki.yml
 ├── listen.port
 └── tls/
+    ├── client-ca.crt
     ├── server.crt
     ├── server.key
-    ├── client-ca.crt
     └── mtls.enabled                     # 仅 mTLS 当前启用时存在
 
 /etc/node_exporter/
 ├── web.yml                              # 启用或曾配置过 mTLS
 └── tls/                                 # 启用或曾配置过 mTLS
+    ├── client-ca.crt
     ├── server.crt
-    ├── server.key
-    └── client-ca.crt
+    └── server.key
 
 /etc/alloy/
 ├── config.alloy
@@ -156,9 +156,9 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 │       ├── client.crt          # Prometheus 客户端证书
 │       └── client.key          # Prometheus 客户端私钥
 └── tls/                    # 启用或曾启用 mTLS 时
+    ├── client-ca.crt
     ├── server.crt
     ├── server.key
-    ├── client-ca.crt
     └── mtls.enabled        # 仅在 mTLS 启用时存在
 /var/lib/prometheus/
 /etc/systemd/system/prometheus.service
@@ -201,9 +201,9 @@ prometheus 用户与组
 ├── loki.yml
 ├── listen.port             # 首次安装生成，记录当前随机或自定义监听端口
 └── tls/                    # 启用或曾启用 mTLS 时
+    ├── client-ca.crt
     ├── server.crt
     ├── server.key
-    ├── client-ca.crt
     └── mtls.enabled        # 仅在 mTLS 启用时存在
 /var/lib/loki/
 ├── chunks/

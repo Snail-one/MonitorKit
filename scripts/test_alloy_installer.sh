@@ -4,8 +4,9 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALLER="${ROOT_DIR}/scripts/probes/alloy/install.sh"
+NODE_EXPORTER_INSTALLER="${ROOT_DIR}/scripts/probes/node_exporter/install.sh"
 
-bash -n "${INSTALLER}"
+bash -n "${INSTALLER}" "${NODE_EXPORTER_INSTALLER}"
 
 unset PROMETHEUS_MTLS_ENABLED LOKI_MTLS_ENABLED
 ALLOY_INSTALLER_SOURCE_ONLY=1 source "${INSTALLER}"
@@ -92,5 +93,23 @@ for expected in \
     exit 1
   }
 done
+
+ca_line="$(grep -nF 'edit_pem_file "${label} 服务端 CA 证书"' "${INSTALLER}" | cut -d: -f1)"
+cert_line="$(grep -nF 'edit_pem_file "${label} Alloy 完整客户端证书"' "${INSTALLER}" | cut -d: -f1)"
+key_line="$(grep -nF 'edit_pem_file "${label} Alloy 客户端私钥"' "${INSTALLER}" | cut -d: -f1)"
+if [[ -z "${ca_line}" || -z "${cert_line}" || -z "${key_line}" ]] || \
+   (( ca_line >= cert_line || cert_line >= key_line )); then
+  printf 'Alloy 证书录入顺序不是 CA → 完整证书 → 私钥\n' >&2
+  exit 1
+fi
+
+ca_line="$(grep -nF 'edit_pem_file "Prometheus 客户端根 CA 证书（信任锚）"' "${NODE_EXPORTER_INSTALLER}" | cut -d: -f1)"
+cert_line="$(grep -nF 'edit_pem_file "node_exporter 完整服务端证书"' "${NODE_EXPORTER_INSTALLER}" | cut -d: -f1)"
+key_line="$(grep -nF 'edit_pem_file "node_exporter 服务端私钥"' "${NODE_EXPORTER_INSTALLER}" | cut -d: -f1)"
+if [[ -z "${ca_line}" || -z "${cert_line}" || -z "${key_line}" ]] || \
+   (( ca_line >= cert_line || cert_line >= key_line )); then
+  printf 'node_exporter 证书录入顺序不是 CA → 完整证书 → 私钥\n' >&2
+  exit 1
+fi
 
 printf 'Alloy 安装器维护框架回归测试通过\n'

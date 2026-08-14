@@ -413,7 +413,7 @@ func (m *Manager) probeTLSFilesLocked(id string) []ProbeTLSFile {
 	dir := m.probeTLSDir(id)
 	return []ProbeTLSFile{
 		{Label: "node_exporter 服务端 CA", Path: filepath.Join(dir, "ca.crt"), Description: "签发 node_exporter 服务端证书的 CA 公共证书"},
-		{Label: "Prometheus 客户端证书", Path: filepath.Join(dir, "client.crt"), Description: "由 node_exporter 信任的客户端 CA 签发的 Prometheus 客户端证书"},
+		{Label: "Prometheus 完整客户端证书", Path: filepath.Join(dir, "client.crt"), Description: "由 node_exporter 信任的客户端 CA 签发的完整 Prometheus 客户端证书或证书链"},
 		{Label: "Prometheus 客户端私钥", Path: filepath.Join(dir, "client.key"), Description: "与 client.crt 匹配的未加密 PEM 私钥"},
 	}
 }

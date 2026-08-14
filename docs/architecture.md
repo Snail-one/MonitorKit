@@ -37,5 +37,5 @@ node_exporter 使用 Prometheus 拉取模型：中心端探针清单保存在 `/
 ## 安全边界
 
 - 发布包必须通过 GitHub Release 提供的 SHA-256 digest 校验。
-- Prometheus 与 Loki 可强制验证 Alloy 客户端证书；服务端证书、私钥和客户端 CA 在启用前通过 OpenSSL 校验。
+- Prometheus 与 Loki 可强制验证 Alloy 客户端证书；所有交互按 CA 证书、完整证书链、私钥的固定顺序录入，并在启用前通过 OpenSSL 校验。
 - 默认卸载保留配置与数据，只有显式 `purge` 才清理。

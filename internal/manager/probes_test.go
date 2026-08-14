@@ -8,6 +8,20 @@ import (
 	"testing"
 )
 
+func TestProbeTLSFilesUseCAChainKeyOrder(t *testing.T) {
+	mgr, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := mgr.probeTLSFilesLocked("node-01")
+	wantSuffixes := []string{"ca.crt", "client.crt", "client.key"}
+	for index, suffix := range wantSuffixes {
+		if !strings.HasSuffix(files[index].Path, suffix) {
+			t.Errorf("probe TLS step %d = %s, want %s", index+1, files[index].Path, suffix)
+		}
+	}
+}
+
 func TestRenderProbeScrapeConfigsAddsAndReplacesManagedBlock(t *testing.T) {
 	base := []byte(`global:
   scrape_interval: 15s

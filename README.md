@@ -160,9 +160,9 @@ Prometheus 和 Loki 的管理菜单均提供“配置管理”：
 
 ```text
 /etc/prometheus/tls/ 或 /etc/loki/tls/
-├── server.crt       # 服务端证书，SAN 包含探针使用的中心端域名或 IP
-├── server.key       # 匹配的未加密服务端私钥
-├── client-ca.crt    # 签发 Alloy 客户端证书的 CA 公共证书
+├── client-ca.crt    # 1. 签发 Alloy 客户端证书的 CA 公共证书
+├── server.crt       # 2. 完整服务端证书或证书链，SAN 包含中心端域名或 IP
+├── server.key       # 3. 匹配的未加密服务端私钥
 └── mtls.enabled     # MonitorKit 管理的启用状态
 ```
 
@@ -178,6 +178,8 @@ Alloy 客户端证书内容
 Alloy 客户端私钥内容
 证书中的 TLS server_name
 ```
+
+所有证书录入流程统一使用 `CA 证书 → 完整证书或证书链 → 私钥` 的顺序；中心端服务、Alloy 和 node_exporter 均遵循这一顺序。
 
 Prometheus 与 Loki 的证书分别填写。安装 Alloy 前，必须在中心端 Prometheus 配置菜单中单独开启“远程写入”；中心端是否启用 mTLS 必须与 Alloy 的选择一致。HTTP 模式不会要求证书，但数据未经 TLS 加密，应使用防火墙限制可信探针 IP。无人值守场景仍可使用脚本帮助中列出的环境变量。
 

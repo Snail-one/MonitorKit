@@ -702,8 +702,8 @@ configure_backend_certificates() {
       edit_pem_file "${label} 服务端 CA 证书" "${ca_destination}" certificate \
         "签发中心端 ${label} 服务器证书的 CA 证书" "服务器证书、客户端证书或私钥"
       [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
-      edit_pem_file "${label} Alloy 客户端证书" "${cert_destination}" certificate \
-        "由 ${label} 信任的 CA 为本机 Alloy 签发的客户端证书" "中心端服务器证书、CA 私钥或其他主机证书"
+      edit_pem_file "${label} Alloy 完整客户端证书" "${cert_destination}" certificate \
+        "由 ${label} 信任的 CA 为本机 Alloy 签发的完整客户端证书或证书链" "中心端服务器证书、CA 私钥或其他主机证书"
       [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
       edit_pem_file "${label} Alloy 客户端私钥" "${key_destination}" private_key \
         "与上一项 Alloy 客户端证书匹配的未加密私钥" "CA 私钥、服务器私钥或带密码私钥"

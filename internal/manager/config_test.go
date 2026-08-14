@@ -22,6 +22,25 @@ func stageComponentConfig(t *testing.T, mgr *Manager, name, content string) stri
 	return path
 }
 
+func TestComponentTLSFilesUseCAChainKeyOrder(t *testing.T) {
+	mgr, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"prometheus", "loki"} {
+		files := mgr.tlsFilesLocked(name)
+		if len(files) != 3 {
+			t.Fatalf("%s TLS file count = %d", name, len(files))
+		}
+		wantSuffixes := []string{"client-ca.crt", "server.crt", "server.key"}
+		for index, suffix := range wantSuffixes {
+			if !strings.HasSuffix(files[index].Path, suffix) {
+				t.Errorf("%s TLS step %d = %s, want %s", name, index+1, files[index].Path, suffix)
+			}
+		}
+	}
+}
+
 func TestEditConfigRestoresOriginalWhenEditorFails(t *testing.T) {
 	mgr, err := New(t.TempDir())
 	if err != nil {

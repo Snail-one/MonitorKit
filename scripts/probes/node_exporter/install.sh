@@ -486,9 +486,14 @@ prepare_mtls_settings() {
   chown root:"${tls_group}" "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key" "${TLS_DIR}/client-ca.crt"
   chmod 0640 "${TLS_DIR}/server.crt" "${TLS_DIR}/server.key" "${TLS_DIR}/client-ca.crt"
 
+  edit_pem_file "Prometheus 客户端根 CA 证书（信任锚）" "${TLS_DIR}/client-ca.crt" certificate \
+    "信任 Prometheus 客户端证书的根 CA 公共证书；如使用中间 CA，可同时包含对应 CA 证书链" \
+    "Prometheus 客户端证书、node_exporter 服务端证书或 CA 私钥"
+  [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+
   while true; do
-    edit_pem_file "node_exporter 服务端证书" "${TLS_DIR}/server.crt" certificate \
-      "node_exporter 提供 HTTPS 指标服务使用的服务端证书，证书 SAN 应包含 Prometheus 访问时使用的域名或 IP" \
+    edit_pem_file "node_exporter 完整服务端证书" "${TLS_DIR}/server.crt" certificate \
+      "node_exporter 提供 HTTPS 指标服务使用的完整服务端证书或证书链，证书 SAN 应包含 Prometheus 访问时使用的域名或 IP" \
       "Prometheus 客户端证书、私钥或 CA 私钥"
     [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
     edit_pem_file "node_exporter 服务端私钥" "${TLS_DIR}/server.key" private_key \
@@ -501,10 +506,6 @@ prepare_mtls_settings() {
     fi
     warn "服务端证书和私钥不匹配，请重新编辑"
   done
-  edit_pem_file "Prometheus 客户端根 CA 证书（信任锚）" "${TLS_DIR}/client-ca.crt" certificate \
-    "信任 Prometheus 客户端证书的根 CA 公共证书；如使用中间 CA，可同时包含对应 CA 证书链" \
-    "Prometheus 客户端证书、node_exporter 服务端证书或 CA 私钥"
-  [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
 
   WEB_CONFIG_ARGUMENT=" --web.config.file=${WEB_CONFIG_FILE}"
   WEB_SCHEME="https"
