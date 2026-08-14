@@ -98,6 +98,10 @@ func (u *UI) OptionState(key, label string, enabled bool) {
 	u.writeOption(key, label, u.StateBadge(enabled))
 }
 
+func (u *UI) OptionLive(key, label, value string, active bool) {
+	u.writeOption(key, label, u.LiveBadge(value, active))
+}
+
 func (u *UI) writeOption(key, label, suffix string) {
 	keyText := u.paint(bold+blue, fmt.Sprintf("%-4s", strings.TrimSpace(key)))
 	if strings.TrimSpace(suffix) == "" {
@@ -211,9 +215,17 @@ func (u *UI) Badge(text string, positive bool) string {
 
 func (u *UI) StateBadge(enabled bool) string {
 	if enabled {
-		return u.paint(orange, "[已开启]")
+		return u.LiveBadge("已开启", true)
 	}
-	return u.paint(gray, "[已关闭]")
+	return u.LiveBadge("已关闭", false)
+}
+
+func (u *UI) LiveBadge(text string, active bool) string {
+	style := gray
+	if active {
+		style = orange
+	}
+	return u.paint(style, "["+strings.TrimSpace(text)+"]")
 }
 
 func (u *UI) Card(tone Tone, title string, fields ...Field) {

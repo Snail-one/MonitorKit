@@ -67,6 +67,26 @@ func TestOptionValueRendersLiveDataAsBadge(t *testing.T) {
 	}
 }
 
+func TestOptionLiveRendersActiveStatusOrangeAndInactiveGray(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1")
+	t.Setenv("NO_COLOR", "")
+	var running bytes.Buffer
+	runningUI := New(strings.NewReader(""), &running)
+	runningUI.color = true
+	runningUI.OptionLive("1", "Prometheus", "运行中", true)
+	if got := running.String(); !strings.Contains(got, "[运行中]") || !strings.Contains(got, orange) || strings.Contains(got, gray) {
+		t.Fatalf("running status = %q", got)
+	}
+
+	var missing bytes.Buffer
+	missingUI := New(strings.NewReader(""), &missing)
+	missingUI.color = true
+	missingUI.OptionLive("2", "Loki", "未安装", false)
+	if got := missing.String(); !strings.Contains(got, "[未安装]") || !strings.Contains(got, gray) || strings.Contains(got, orange) {
+		t.Fatalf("missing status = %q", got)
+	}
+}
+
 func TestOptionStateUsesOrangeWhenEnabledAndGrayWhenClosed(t *testing.T) {
 	t.Setenv("CLICOLOR_FORCE", "1")
 	t.Setenv("NO_COLOR", "")

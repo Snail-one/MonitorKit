@@ -60,8 +60,8 @@ func (a *App) Run(ctx context.Context) error {
 			access = "管理模式"
 		}
 		a.ui.Home("服务器可观测性控制台 · "+version.Version, access, privileged)
-		a.ui.Option("1", componentViews["prometheus"].label, statusHint(statuses["prometheus"]))
-		a.ui.Option("2", componentViews["loki"].label, statusHint(statuses["loki"]))
+		a.ui.OptionLive("1", componentViews["prometheus"].label, statusHint(statuses["prometheus"]), statusActive(statuses["prometheus"]))
+		a.ui.OptionLive("2", componentViews["loki"].label, statusHint(statuses["loki"]), statusActive(statuses["loki"]))
 		a.ui.Option("3", "探针接入", "Shell")
 		a.ui.ExitOption("退出")
 		a.ui.Blank()
@@ -1162,6 +1162,10 @@ func statusHint(status manager.Status) string {
 		return "待启用"
 	}
 	return "已停止"
+}
+
+func statusActive(status manager.Status) bool {
+	return status.Installed && status.ServiceState == "active"
 }
 
 func (a *App) operationError(title string, err error) {

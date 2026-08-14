@@ -24,10 +24,13 @@ func TestMainMenuExitsAndShowsMonitoringDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"MonitorKit", "Prometheus", "Loki", "探针接入"} {
+	for _, want := range []string{"MonitorKit", "Prometheus", "Loki", "探针接入", "[未安装]"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("menu does not contain %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "-- 未安装") || strings.Contains(got, "-- 运行中") {
+		t.Fatalf("home status still uses hint dashes:\n%s", got)
 	}
 }
 
