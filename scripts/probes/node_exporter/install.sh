@@ -26,11 +26,15 @@ readonly SERVICE_FILE="/etc/systemd/system/node_exporter.service"
 
 RESET=""
 BOLD=""
+DIM=""
 ORANGE=""
 BLUE=""
 GREEN=""
 YELLOW=""
 RED=""
+GRAY=""
+RL_ORANGE=""
+RL_RESET=""
 LATEST_VERSION=""
 WEB_CONFIG_ARGUMENT=""
 WEB_SCHEME="http"
@@ -42,6 +46,8 @@ SELECTED_ACTION="install"
 MAINTENANCE_ACTION="install"
 RETURN_TO_MAIN=0
 WORK_DIR=""
+CONFIG_TRANSACTION_ACTIVE=0
+CONFIG_EXISTED=0
 
 init_colors() {
   if [[ -n "${NO_COLOR+x}" ]]; then
@@ -55,44 +61,98 @@ init_colors() {
   esc="$(printf '\033')"
   RESET="${esc}[0m"
   BOLD="${esc}[1m"
+  DIM="${esc}[2m"
   ORANGE="${esc}[38;5;208m"
   BLUE="${esc}[34m"
   GREEN="${esc}[32m"
   YELLOW="${esc}[33m"
   RED="${esc}[31m"
+  GRAY="${esc}[90m"
+  RL_ORANGE=$'\001'"${esc}[1m${esc}[38;5;208m"$'\002'
+  RL_RESET=$'\001'"${esc}[0m"$'\002'
 }
 
 print_banner() {
-  printf '%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Node Exporter" "${RESET}"
+  printf '%s╭─ %sMonitorKit  ›  node_exporter%s\n' "${ORANGE}" "${BOLD}" "${RESET}"
   printf '%s│ %s%s\n' "${ORANGE}" "$1" "${RESET}"
-  printf '%s%s%s\n\n' "${ORANGE}" "╰──────────────────────────────────────────────" "${RESET}"
+  printf '%s╰────────────────────────────────────────────────────%s\n\n' "${ORANGE}" "${RESET}"
 }
 
+print_card() {
+  local title_color="$1"
+  local title="$2"
+  shift 2
+  printf '\n%s╭─ %sMonitorKit%s\n' "${ORANGE}" "${BOLD}" "${RESET}"
+  printf '%s│ %s%s%s\n' "${ORANGE}" "${BOLD}${title_color}" "${title}" "${RESET}"
+  while (( $# >= 2 )); do
+    printf '%s│ %s%s：%s%s\n' "${ORANGE}" "${BLUE}" "$1" "${RESET}" "$2"
+    shift 2
+  done
+  printf '%s╰────────────────────────────────────────────────────%s\n' "${ORANGE}" "${RESET}"
+}
+
+success_card() { print_card "${GREEN}" "$@"; }
+warning_card() { print_card "${YELLOW}" "$@"; }
+danger_card() { print_card "${RED}" "$@"; }
+
+menu_section() { printf '%s%s%s\n' "${BOLD}" "$1" "${RESET}" >&2; }
+
+menu_option() {
+  local key="$1"
+  local label="$2"
+  local hint="${3:-}"
+  printf '  %s%-4s%s %s' "${BOLD}${BLUE}" "${key}" "${RESET}" "${label}" >&2
+  [[ -z "${hint}" ]] || printf '  %s-- %s%s' "${GRAY}" "${hint}" "${RESET}" >&2
+  printf '\n' >&2
+}
+
+menu_exit() {
+  printf '  %s%-4s%s %s%s%s\n' "${BOLD}${YELLOW}" "$1" "${RESET}" "${DIM}" "$2" "${RESET}" >&2
+}
+
+invalid_choice() { warn "无效选项，请重新输入"; }
+
+read_editable() {
+  local variable_name="$1"
+  local prompt="$2"
+  local initial="${3:-}"
+  local value=""
+  local prompt_text="${RL_ORANGE}❯${RL_RESET} ${prompt} "
+  set_interactive_device
+  if [[ -n "${initial}" ]]; then
+    if ! IFS= read -e -r -i "${initial}" -p "${prompt_text}" value <"${INTERACTIVE_DEVICE}"; then
+      exit_card "输入已结束，安全退出"
+      exit 0
+    fi
+  elif ! IFS= read -e -r -p "${prompt_text}" value <"${INTERACTIVE_DEVICE}"; then
+    exit_card "输入已结束，安全退出"
+    exit 0
+  fi
+  printf -v "${variable_name}" '%s' "${value}"
+}
+
+exit_card() { success_card "$1" "系统修改" "无"; }
+
 print_release_info() {
-  printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Node Exporter" "${RESET}"
-  printf '%s│ %s%s%s\n' "${ORANGE}" "${BOLD}${ORANGE}" "发布信息" "${RESET}"
-  printf '%s│ %s平台：%sLinux/%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "$1"
-  printf '%s│ %s当前版本：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "$2"
-  printf '%s│ %s目标版本：%s%s%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${BOLD}" "$3" "${RESET}"
-  printf '%s│ %s执行操作：%s%s%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${BOLD}" "$4" "${RESET}"
-  printf '%s│ %s监听地址：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${NODE_EXPORTER_LISTEN_ADDRESS}"
-  printf '%s│ %smTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${MTLS_STATUS}"
-  printf '%s%s%s\n' "${ORANGE}" "╰──────────────────────────────────────────────" "${RESET}"
+  print_card "${ORANGE}" "发布信息" \
+    "平台" "Linux/$1" \
+    "当前版本" "$2" \
+    "目标版本" "$3" \
+    "执行操作" "$4" \
+    "监听地址" "${NODE_EXPORTER_LISTEN_ADDRESS}" \
+    "mTLS" "${MTLS_STATUS}"
 }
 
 print_completion_card() {
-  printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Node Exporter" "${RESET}"
-  printf '%s│ %s%s完成%s\n' "${ORANGE}" "${BOLD}${GREEN}" "$1" "${RESET}"
-  printf '%s│ %s版本：%s%s%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${BOLD}" "$2" "${RESET}"
-  printf '%s│ %s服务：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "node_exporter.service"
-  printf '%s│ %s指标：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${WEB_SCHEME}://${NODE_EXPORTER_LISTEN_ADDRESS}/metrics"
-  printf '%s%s%s\n' "${ORANGE}" "╰──────────────────────────────────────────────" "${RESET}"
+  success_card "$1完成" \
+    "版本" "$2" \
+    "服务" "node_exporter.service（运行中、开机自启）" \
+    "指标地址" "${WEB_SCHEME}://${NODE_EXPORTER_LISTEN_ADDRESS}/metrics" \
+    "配置目录" "${CONFIG_DIR}"
 }
 
 print_result_card() {
-  printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Node Exporter" "${RESET}"
-  printf '%s│ %s%s%s\n' "${ORANGE}" "${BOLD}${GREEN}" "$1" "${RESET}"
-  printf '%s%s%s\n' "${ORANGE}" "╰──────────────────────────────────────────────" "${RESET}"
+  success_card "$@"
 }
 
 step() {
@@ -128,11 +188,49 @@ on_error() {
   exit "${exit_code}"
 }
 
+on_signal() {
+  printf '\n'
+  warning_card "操作已中止" \
+    "原因" "收到中断信号" \
+    "处理" "临时下载文件已清理"
+  exit 130
+}
+
 cleanup() {
+  if [[ "${CONFIG_TRANSACTION_ACTIVE}" == "1" ]]; then
+    restore_config_transaction
+  fi
   if [[ -n "${WORK_DIR}" ]]; then
     rm -rf -- "${WORK_DIR}"
     WORK_DIR=""
   fi
+}
+
+begin_config_transaction() {
+  local backup_dir="${WORK_DIR}/config-backup"
+  rm -rf -- "${backup_dir}"
+  install -d -m 0700 "${backup_dir}"
+  CONFIG_EXISTED=0
+  if [[ -d "${CONFIG_DIR}" ]]; then
+    CONFIG_EXISTED=1
+    cp -a -- "${CONFIG_DIR}" "${backup_dir}/config"
+  fi
+  CONFIG_TRANSACTION_ACTIVE=1
+}
+
+restore_config_transaction() {
+  local backup_dir="${WORK_DIR}/config-backup/config"
+  [[ -n "${WORK_DIR}" ]] || return 0
+  rm -rf -- "${CONFIG_DIR}"
+  if [[ "${CONFIG_EXISTED}" == "1" && -d "${backup_dir}" ]]; then
+    cp -a -- "${backup_dir}" "${CONFIG_DIR}"
+  fi
+  CONFIG_TRANSACTION_ACTIVE=0
+  result "已恢复操作前的 node_exporter 配置和证书"
+}
+
+commit_config_transaction() {
+  CONFIG_TRANSACTION_ACTIVE=0
 }
 
 usage() {
@@ -159,7 +257,9 @@ mTLS 环境变量：
   NODE_EXPORTER_MTLS_ENABLED=1
 
 mTLS 模式会使用 vim、nano 或 vi 编辑并校验证书文件。
-所有交互输入错误时会提示重新输入；输入 q 可返回主菜单。
+所有交互输入错误时都会提示并允许重新输入。
+顶层菜单使用 0/q 安全退出，子菜单使用 0/q 取消并返回；NO_COLOR=1
+可关闭颜色，FORCE_COLOR=1 可在受支持的非交互输出中强制启用颜色。
 EOF
 }
 
@@ -201,14 +301,41 @@ validate_listen_address() {
   (( port >= 1 && port <= 65535 )) || die "监听端口必须在 1 到 65535 之间"
 }
 
-set_interactive_device() {
+detect_interactive_device() {
+  [[ -n "${INTERACTIVE_DEVICE}" ]] && return 0
   if [[ -c /dev/tty ]] && { : </dev/tty; } 2>/dev/null; then
     INTERACTIVE_DEVICE="/dev/tty"
   elif [[ -t 0 ]]; then
     INTERACTIVE_DEVICE="/dev/stdin"
   else
-    die "当前环境没有可用的交互式终端"
+    return 1
   fi
+}
+
+set_interactive_device() {
+  detect_interactive_device || die "当前环境没有可用的交互式终端；请使用交互终端运行"
+}
+
+ask_yes_no_default() {
+  local prompt="$1"
+  local default_answer="$2"
+  local answer=""
+  local hint="y/N"
+  [[ "${default_answer}" == "yes" ]] && hint="Y/n"
+  while true; do
+    read_editable answer "${prompt} [${hint}]："
+    case "${answer,,}" in
+      y|yes) return 0 ;;
+      n|no) return 1 ;;
+      "")
+        if [[ "${default_answer}" == "yes" ]]; then
+          return 0
+        fi
+        return 1
+        ;;
+      *) warn "请输入 y 或 n" ;;
+    esac
+  done
 }
 
 select_text_editor() {
@@ -250,29 +377,28 @@ edit_pem_file() {
   local content_description="$4"
   local content_warning="$5"
   local answer=""
+  local pem_header="-----BEGIN CERTIFICATE-----"
+
+  [[ "${content_type}" == "certificate" ]] || pem_header="-----BEGIN PRIVATE KEY-----（也支持 RSA/EC 私钥）"
 
   while true; do
-    printf '\n'
-    step "配置${content_name}"
-    info "填写内容：${content_description}"
-    warn "不要填写：${content_warning}"
-    if [[ "${content_type}" == "certificate" ]]; then
-      info "PEM 开头：-----BEGIN CERTIFICATE-----"
-    else
-      info "PEM 开头：-----BEGIN PRIVATE KEY-----（也支持 RSA/EC 私钥）"
-    fi
-    info "文件路径：${file_path}"
-    info "手动编辑命令：sudo ${TEXT_EDITOR##*/} ${file_path}"
-    printf '%s按回车打开 %s，输入 q 返回主菜单：%s' "${BLUE}" "${TEXT_EDITOR##*/}" "${RESET}" >&2
-    IFS= read -e -r answer <"${INTERACTIVE_DEVICE}" || die "读取用户输入失败"
+    warning_card "配置 ${content_name}" \
+      "应填写" "${content_description}" \
+      "不要填写" "${content_warning}" \
+      "PEM 开头" "${pem_header}" \
+      "受管文件" "${file_path}" \
+      "编辑器" "${TEXT_EDITOR##*/}"
+    read_editable answer "按回车打开编辑器；输入 0/q 取消："
     case "${answer}" in
       "") ;;
-      q|Q)
+      0|q|Q)
         RETURN_TO_MAIN=1
-        result "正在返回主菜单"
+        warning_card "配置已取消" \
+          "已保留" "当前 node_exporter 配置和证书" \
+          "系统修改" "无"
         return 0
         ;;
-      *) warn "输入无效：请直接按回车打开编辑器，或输入 q 返回主菜单"; continue ;;
+      *) invalid_choice; continue ;;
     esac
 
     if ! open_text_editor "${file_path}"; then
@@ -301,16 +427,15 @@ certificate_matches_private_key() {
 choose_install_mode() {
   [[ "${NODE_EXPORTER_MTLS_MODE_PRESET}" == "0" ]] || return 0
   set_interactive_device
-
-  printf '%s  1.%s 安装/更新：mTLS（HTTPS，强制验证客户端证书，默认）\n' "${ORANGE}" "${RESET}" >&2
-  printf '%s  2.%s 安装/更新：普通 HTTP\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  3.%s 标准卸载（保留配置、证书和账号）\n' "${YELLOW}" "${RESET}" >&2
-  printf '%s  4.%s 彻底清理（删除配置、证书和账号）\n' "${RED}" "${RESET}" >&2
-  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
+  menu_section "请选择安装方式"
+  menu_option "1" "mTLS 安装" "默认；HTTPS 并验证 Prometheus 客户端证书"
+  menu_option "2" "HTTP 安装" "明文指标端点；建议配合防火墙"
+  menu_option "3" "普通卸载" "保留配置、证书和系统账号"
+  menu_option "4" "彻底清理" "永久删除配置、证书和系统账号"
+  menu_exit "0/q" "退出"
   while true; do
-    printf '%s请选择操作 [1-4]（默认 1：mTLS）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
-    IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取安装方式失败"
+    read_editable choice "请选择 [1-4]（默认 1）："
     case "${choice}" in
       ""|1)
         NODE_EXPORTER_MTLS_ENABLED=1
@@ -318,6 +443,14 @@ choose_install_mode() {
         return
         ;;
       2)
+        warning_card "HTTP 明文传输风险" \
+          "指标端点" "http://${NODE_EXPORTER_LISTEN_ADDRESS}/metrics" \
+          "风险" "指标可被网络中的其他设备读取或篡改" \
+          "建议" "通过防火墙仅允许 Prometheus 服务器访问"
+        if ! ask_yes_no_default "确认使用普通 HTTP" no; then
+          info "已取消 HTTP 模式，请重新选择"
+          continue
+        fi
         NODE_EXPORTER_MTLS_ENABLED=0
         result "已选择普通 HTTP 模式"
         return
@@ -329,28 +462,23 @@ choose_install_mode() {
         ;;
       4)
         SELECTED_ACTION="purge"
-        warn "已选择彻底清理，mTLS 配置和证书将被永久删除"
         return
         ;;
-      q|Q)
-        RETURN_TO_MAIN=1
-        result "正在返回主菜单"
-        return 0
-        ;;
-      *) warn "输入无效：请输入 1、2、3、4 或 q" ;;
+      0|q|Q) SELECTED_ACTION="quit"; return ;;
+      *) invalid_choice ;;
     esac
   done
 }
 
 choose_uninstall_mode() {
   set_interactive_device
-  printf '%s  1.%s 标准卸载（保留配置、证书和账号）\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  2.%s 彻底清理（删除全部配置、证书和账号）\n' "${RED}" "${RESET}" >&2
-  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
+  menu_section "请选择卸载方式"
+  menu_option "1" "普通卸载" "默认；保留配置、证书和系统账号"
+  menu_option "2" "彻底清理" "永久删除配置、证书和系统账号"
+  menu_exit "0/q" "取消并返回"
   while true; do
-    printf '%s请选择卸载方式 [1-2]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
-    IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取卸载方式失败"
+    read_editable choice "请选择 [1-2]（默认 1）："
     case "${choice}" in
       ""|1)
         PURGE_MODE=0
@@ -359,30 +487,34 @@ choose_uninstall_mode() {
         ;;
       2)
         PURGE_MODE=1
-        warn "已选择彻底清理，mTLS 配置和证书将被永久删除"
+        danger_card "彻底清理警告" \
+          "将删除" "${CONFIG_DIR}、${BIN_DIR}/node_exporter" \
+          "不可恢复" "mTLS 证书、服务配置和系统账号"
         return
         ;;
-      q|Q)
+      0|q|Q)
         RETURN_TO_MAIN=1
-        result "正在返回主菜单"
+        warning_card "卸载已取消" \
+          "已保留" "node_exporter 程序、配置、证书和系统账号" \
+          "系统修改" "无"
         return 0
         ;;
-      *) warn "输入无效：请输入 1、2 或 q" ;;
+      *) invalid_choice ;;
     esac
   done
 }
 
 choose_maintenance_action() {
   set_interactive_device
-  printf '%s  1.%s 检查最新版本并更新\n' "${ORANGE}" "${RESET}" >&2
-  printf '%s  2.%s 仅重新配置（不访问 API、不下载安装包，默认）\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  3.%s 标准卸载（保留配置、证书和账号）\n' "${YELLOW}" "${RESET}" >&2
-  printf '%s  4.%s 彻底清理（删除配置、证书和账号）\n' "${RED}" "${RESET}" >&2
-  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
+  menu_section "请选择维护操作"
+  menu_option "1" "检查更新" "查询最新版本并按需下载"
+  menu_option "2" "仅重新配置" "默认；不访问 API、不下载安装包"
+  menu_option "3" "普通卸载" "保留配置、证书和系统账号"
+  menu_option "4" "彻底清理" "永久删除配置、证书和系统账号"
+  menu_exit "0/q" "退出"
   while true; do
-    printf '%s请选择维护操作 [1-4]（默认 2）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
-    IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取维护操作失败"
+    read_editable choice "请选择 [1-4]（默认 2）："
     case "${choice}" in
       1)
         MAINTENANCE_ACTION="update"
@@ -401,15 +533,10 @@ choose_maintenance_action() {
         ;;
       4)
         SELECTED_ACTION="purge"
-        warn "已选择彻底清理，mTLS 配置和证书将被永久删除"
         return
         ;;
-      q|Q)
-        RETURN_TO_MAIN=1
-        result "正在返回主菜单"
-        return 0
-        ;;
-      *) warn "输入无效：请输入 1、2、3、4 或 q" ;;
+      0|q|Q) SELECTED_ACTION="quit"; return ;;
+      *) invalid_choice ;;
     esac
   done
 }
@@ -417,13 +544,13 @@ choose_maintenance_action() {
 choose_reconfigure_mode() {
   [[ "${NODE_EXPORTER_MTLS_MODE_PRESET}" == "0" ]] || return 0
   set_interactive_device
-  printf '%s  1.%s mTLS（HTTPS，强制验证客户端证书，默认）\n' "${ORANGE}" "${RESET}" >&2
-  printf '%s  2.%s 普通 HTTP\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  q.%s 返回主菜单\n' "${BLUE}" "${RESET}" >&2
+  menu_section "请选择接入方式"
+  menu_option "1" "mTLS" "默认；HTTPS 并验证 Prometheus 客户端证书"
+  menu_option "2" "普通 HTTP" "明文指标端点；建议配合防火墙"
+  menu_exit "0/q" "返回上一级"
   while true; do
-    printf '%s请选择重新配置方式 [1-2]（默认 1：mTLS）：%s' "${BLUE}" "${RESET}" >&2
     local choice=""
-    IFS= read -e -r choice <"${INTERACTIVE_DEVICE}" || die "读取重新配置方式失败"
+    read_editable choice "请选择 [1-2]（默认 1）："
     case "${choice}" in
       ""|1)
         NODE_EXPORTER_MTLS_ENABLED=1
@@ -431,16 +558,23 @@ choose_reconfigure_mode() {
         return
         ;;
       2)
+        warning_card "HTTP 明文传输风险" \
+          "指标端点" "http://${NODE_EXPORTER_LISTEN_ADDRESS}/metrics" \
+          "风险" "指标可被网络中的其他设备读取或篡改" \
+          "建议" "通过防火墙仅允许 Prometheus 服务器访问"
+        if ! ask_yes_no_default "确认改为普通 HTTP" no; then
+          info "已取消 HTTP 模式，请重新选择"
+          continue
+        fi
         NODE_EXPORTER_MTLS_ENABLED=0
         result "将重新配置为普通 HTTP 模式"
         return
         ;;
-      q|Q)
+      0|q|Q)
         RETURN_TO_MAIN=1
-        result "正在返回主菜单"
         return 0
         ;;
-      *) warn "输入无效：请输入 1、2 或 q" ;;
+      *) invalid_choice ;;
     esac
   done
 }
@@ -694,6 +828,16 @@ uninstall_node_exporter() {
       ;;
   esac
 
+  if [[ "${PURGE_MODE}" == "1" ]] && detect_interactive_device; then
+    if ! ask_yes_no_default "确认永久删除 node_exporter 配置、证书和系统账号" no; then
+      RETURN_TO_MAIN=1
+      warning_card "彻底清理已取消" \
+        "已保留" "${CONFIG_DIR}、node_exporter 程序和系统账号" \
+        "系统修改" "无"
+      return 0
+    fi
+  fi
+
   printf '\n'
   step "停止 node_exporter 服务"
   info "正在停止并禁用 node_exporter.service"
@@ -720,11 +864,16 @@ uninstall_node_exporter() {
       groupdel "${EXPORTER_GROUP}"
     fi
     result "mTLS 配置、证书和系统账号已删除"
-    print_result_card "node_exporter 彻底清理完成"
+    print_result_card "彻底清理完成" \
+      "已删除" "程序、服务、${CONFIG_DIR} 和系统账号" \
+      "未清理" "下载缓存以外的系统日志和 Prometheus 中已有指标"
   else
     info "mTLS 配置和证书已保留：${CONFIG_DIR}"
     info "系统账号已保留：${EXPORTER_USER}"
-    print_result_card "node_exporter 标准卸载完成"
+    print_result_card "普通卸载完成" \
+      "已删除" "程序和 systemd 服务" \
+      "已保留" "${CONFIG_DIR}、mTLS 证书和系统账号" \
+      "未清理" "Prometheus 中已有指标"
   fi
 }
 
@@ -738,10 +887,7 @@ main() {
     uninstall|--uninstall|-u)
       [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
       uninstall_node_exporter ask
-      if [[ "${RETURN_TO_MAIN}" == "0" ]]; then
-        exit 0
-      fi
-      RETURN_TO_MAIN=0
+      return 0
       ;;
     purge|--purge)
       [[ "$#" -eq 1 ]] || die "参数过多，请使用 --help 查看用法"
@@ -783,6 +929,10 @@ main() {
   local extracted_dir=""
   local download_required=0
 
+  require_commands mktemp rm
+  work_dir="$(mktemp -d -t node-exporter-install.XXXXXXXX)"
+  WORK_DIR="${work_dir}"
+
   while true; do
     RETURN_TO_MAIN=0
     SELECTED_ACTION="install"
@@ -818,37 +968,42 @@ main() {
     fi
 
     case "${SELECTED_ACTION}" in
+      quit)
+        exit_card "已退出"
+        return 0
+        ;;
       uninstall)
         uninstall_node_exporter keep
-        exit 0
+        return 0
         ;;
       purge)
         uninstall_node_exporter purge
-        exit 0
+        return 0
         ;;
     esac
 
     printf '\n'
     step "检查安装依赖"
-    require_commands awk cat chmod getent grep groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
+    require_commands awk cat chmod cp getent grep groupadd id install mktemp rm sed sha256sum systemctl tar uname useradd
     result "安装依赖检查通过"
 
     validate_listen_address "${NODE_EXPORTER_LISTEN_ADDRESS}"
     if [[ "${MAINTENANCE_ACTION}" == "update" ]]; then
       load_existing_web_mode
     else
+      begin_config_transaction
       prepare_mtls_settings
     fi
     if [[ "${RETURN_TO_MAIN}" == "1" ]]; then
+      [[ "${CONFIG_TRANSACTION_ACTIVE}" == "0" ]] || restore_config_transaction
       NODE_EXPORTER_MTLS_MODE_PRESET=0
       continue
     fi
+    commit_config_transaction
     break
   done
 
   arch="$(detect_arch)"
-  work_dir="$(mktemp -d -t node-exporter-install.XXXXXXXX)"
-  WORK_DIR="${work_dir}"
 
   if [[ "${MAINTENANCE_ACTION}" == "reconfigure" ]]; then
     version="${current_version}"
@@ -945,7 +1100,10 @@ main() {
   print_completion_card "${action}" "${version}"
 }
 
-trap 'on_error "$?" "$LINENO"' ERR
-trap cleanup EXIT
-init_colors
-main "$@"
+if [[ "${NODE_EXPORTER_INSTALLER_SOURCE_ONLY:-0}" != "1" ]]; then
+  trap 'on_error "$?" "$LINENO"' ERR
+  trap on_signal INT TERM
+  trap cleanup EXIT
+  init_colors
+  main "$@"
+fi

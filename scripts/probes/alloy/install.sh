@@ -35,11 +35,15 @@ LOKI_TLS_SERVER_NAME="${LOKI_TLS_SERVER_NAME:-}"
 
 RESET=""
 BOLD=""
+DIM=""
 ORANGE=""
 BLUE=""
 GREEN=""
 YELLOW=""
 RED=""
+GRAY=""
+RL_ORANGE=""
+RL_RESET=""
 INTERACTIVE_DEVICE=""
 TEXT_EDITOR=""
 SELECTED_ACTION="install"
@@ -67,18 +71,39 @@ init_colors() {
   esc="$(printf '\033')"
   RESET="${esc}[0m"
   BOLD="${esc}[1m"
+  DIM="${esc}[2m"
   ORANGE="${esc}[38;5;208m"
   BLUE="${esc}[34m"
   GREEN="${esc}[32m"
   YELLOW="${esc}[33m"
   RED="${esc}[31m"
+  GRAY="${esc}[90m"
+  RL_ORANGE=$'\001'"${esc}[1m${esc}[38;5;208m"$'\002'
+  RL_RESET=$'\001'"${esc}[0m"$'\002'
 }
 
 print_banner() {
-  printf '%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Grafana Alloy" "${RESET}"
+  printf '%s╭─ %sMonitorKit  ›  Grafana Alloy%s\n' "${ORANGE}" "${BOLD}" "${RESET}"
   printf '%s│ %s%s\n' "${ORANGE}" "$1" "${RESET}"
-  printf '%s%s%s\n\n' "${ORANGE}" "╰────────────────────────────────────────────────────" "${RESET}"
+  printf '%s╰────────────────────────────────────────────────────%s\n\n' "${ORANGE}" "${RESET}"
 }
+
+print_card() {
+  local title_color="$1"
+  local title="$2"
+  shift 2
+  printf '\n%s╭─ %sMonitorKit%s\n' "${ORANGE}" "${BOLD}" "${RESET}"
+  printf '%s│ %s%s%s%s\n' "${ORANGE}" "${BOLD}${title_color}" "${title}" "${RESET}" ""
+  while (( $# >= 2 )); do
+    printf '%s│ %s%s：%s%s\n' "${ORANGE}" "${BLUE}" "$1" "${RESET}" "$2"
+    shift 2
+  done
+  printf '%s╰────────────────────────────────────────────────────%s\n' "${ORANGE}" "${RESET}"
+}
+
+success_card() { print_card "${GREEN}" "$@"; }
+warning_card() { print_card "${YELLOW}" "$@"; }
+danger_card() { print_card "${RED}" "$@"; }
 
 step() { printf '%s[步骤]%s %s\n' "${ORANGE}" "${RESET}" "$*"; }
 info() { printf '%s[信息]%s %s\n' "${BLUE}" "${RESET}" "$*"; }
@@ -86,30 +111,64 @@ result() { printf '%s[结果]%s %s\n' "${GREEN}" "${RESET}" "$*"; }
 warn() { printf '%s[警告]%s %s\n' "${YELLOW}" "${RESET}" "$*"; }
 die() { printf '%s[错误]%s %s\n' "${RED}" "${RESET}" "$*" >&2; exit 1; }
 
+menu_section() { printf '%s%s%s\n' "${BOLD}" "$1" "${RESET}" >&2; }
+
+menu_option() {
+  local key="$1"
+  local label="$2"
+  local hint="${3:-}"
+  printf '  %s%-4s%s %s' "${BOLD}${BLUE}" "${key}" "${RESET}" "${label}" >&2
+  [[ -z "${hint}" ]] || printf '  %s-- %s%s' "${GRAY}" "${hint}" "${RESET}" >&2
+  printf '\n' >&2
+}
+
+menu_exit() {
+  printf '  %s%-4s%s %s%s%s\n' "${BOLD}${YELLOW}" "$1" "${RESET}" "${DIM}" "$2" "${RESET}" >&2
+}
+
+invalid_choice() { warn "无效选项，请重新输入"; }
+
+read_editable() {
+  local variable_name="$1"
+  local prompt="$2"
+  local initial="${3:-}"
+  local value=""
+  local prompt_text="${RL_ORANGE}❯${RL_RESET} ${prompt} "
+  set_interactive_device
+  if [[ -n "${initial}" ]]; then
+    if ! IFS= read -e -r -i "${initial}" -p "${prompt_text}" value <"${INTERACTIVE_DEVICE}"; then
+      exit_card "输入已结束，安全退出"
+      exit 0
+    fi
+  elif ! IFS= read -e -r -p "${prompt_text}" value <"${INTERACTIVE_DEVICE}"; then
+    exit_card "输入已结束，安全退出"
+    exit 0
+  fi
+  printf -v "${variable_name}" '%s' "${value}"
+}
+
+exit_card() { success_card "$1" "系统修改" "无"; }
+
 print_completion_card() {
   local title="$1"
-  printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Grafana Alloy" "${RESET}"
-  printf '%s│ %s%s%s%s\n' "${ORANGE}" "${BOLD}${GREEN}" "${title}" "${RESET}" ""
-  printf '%s│ %s服务：%salloy.service（运行中、开机自启）\n' "${ORANGE}" "${BLUE}" "${RESET}"
-  printf '%s│ %s节点名称：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${MONITOR_NAME}"
-  printf '%s│ %s指标中心：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${PROMETHEUS_URL}"
-  printf '%s│ %s日志中心：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${LOKI_URL}"
-  printf '%s│ %sPrometheus mTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "$([[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] && printf '已启用' || printf '未启用（HTTP，未加密）')"
-  printf '%s│ %sLoki mTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "$([[ "${LOKI_MTLS_ENABLED}" == "1" ]] && printf '已启用' || printf '未启用（HTTP，未加密）')"
-  printf '%s│ %s配置文件：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${CONFIG_FILE}"
-  printf '%s%s%s\n' "${ORANGE}" "╰────────────────────────────────────────────────────" "${RESET}"
+  success_card "${title}" \
+    "服务" "alloy.service（运行中、开机自启）" \
+    "节点名称" "${MONITOR_NAME}" \
+    "指标中心" "${PROMETHEUS_URL}" \
+    "日志中心" "${LOKI_URL}" \
+    "Prometheus mTLS" "$([[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] && printf '已启用' || printf '未启用（HTTP，未加密）')" \
+    "Loki mTLS" "$([[ "${LOKI_MTLS_ENABLED}" == "1" ]] && printf '已启用' || printf '未启用（HTTP，未加密）')" \
+    "配置文件" "${CONFIG_FILE}"
 }
 
 print_uninstall_card() {
   local title="$1"
   local retained="$2"
-  printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Grafana Alloy" "${RESET}"
-  printf '%s│ %s%s%s\n' "${ORANGE}" "${BOLD}${GREEN}" "${title}" "${RESET}"
-  printf '%s│ %s已删除：%sAlloy 软件包及其服务\n' "${ORANGE}" "${BLUE}" "${RESET}"
-  printf '%s│ %s%s\n' "${ORANGE}" "${retained}" "${RESET}"
-  printf '%s│ %s未清理：%sGrafana 软件源/签名密钥、软件包缓存、journald 历史日志\n' "${ORANGE}" "${BLUE}" "${RESET}"
-  printf '%s│ %s账号说明：%salloy 账号由系统软件包管理器决定是否保留\n' "${ORANGE}" "${BLUE}" "${RESET}"
-  printf '%s%s%s\n' "${ORANGE}" "╰────────────────────────────────────────────────────" "${RESET}"
+  success_card "${title}" \
+    "已删除" "Alloy 软件包及其服务" \
+    "配置与数据" "${retained}" \
+    "未清理" "Grafana 软件源/签名密钥、软件包缓存、journald 历史日志" \
+    "系统账号" "由系统软件包管理器决定是否保留"
 }
 
 usage() {
@@ -146,6 +205,8 @@ Grafana Alloy 指标与日志统一探针维护脚本。
 
 普通卸载保留 /etc/alloy 和 /var/lib/alloy；purge 会删除这两个目录。
 两种卸载方式均不清理 Grafana 软件源、签名密钥、包缓存和历史日志。
+顶层菜单使用 0/q 安全退出，子菜单使用 0/q 取消并返回；NO_COLOR=1
+可关闭颜色，FORCE_COLOR=1 可在受支持的非交互输出中强制启用颜色。
 EOF
 }
 
@@ -211,8 +272,7 @@ ask_yes_no_default() {
   [[ "${default_answer}" == "yes" ]] && hint="Y/n"
   set_interactive_device
   while true; do
-    printf '❯ %s [%s]： ' "${prompt}" "${hint}" >&2
-    IFS= read -r answer <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    read_editable answer "${prompt} [${hint}]："
     case "${answer,,}" in
       y|yes) return 0 ;;
       n|no) return 1 ;;
@@ -275,19 +335,15 @@ prompt_backend_url() {
   detect_interactive_device || die "无人值守配置缺少 ${variable_name}"
   while true; do
     if [[ -n "${value}" ]]; then
-      printf -v prompt_text '❯ %s 根地址 [%s]： ' "${label}" "${value}"
+      printf -v prompt_text '%s 根地址：' "${label}"
     elif [[ "${required_scheme}" == "https" ]]; then
-      printf -v prompt_text '❯ %s 地址（可直接输入 IP:端口，例如 10.0.0.10:24567，自动使用 HTTPS）： ' "${label}"
+      printf -v prompt_text '%s 地址（IP:端口自动使用 HTTPS）：' "${label}"
     elif [[ "${required_scheme}" == "http" ]]; then
-      printf -v prompt_text '❯ %s 地址（已确认不启用 mTLS；输入 IP:端口将使用 HTTP）： ' "${label}"
+      printf -v prompt_text '%s 地址（IP:端口使用 HTTP）：' "${label}"
     else
-      printf -v prompt_text '❯ %s 根地址（请输入 http:// 或 https://）： ' "${label}"
+      printf -v prompt_text '%s 根地址（请输入 http:// 或 https://）：' "${label}"
     fi
-    if [[ -n "${value}" ]]; then
-      IFS= read -e -r -i "${value}" -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
-    else
-      IFS= read -e -r -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
-    fi
+    read_editable entered "${prompt_text}" "${value}"
     entered="$(trim_value "${entered}")"
     candidate="${entered:-${value}}"
     candidate="$(normalize_backend_url_input "${candidate}" "${default_scheme}")"
@@ -331,8 +387,8 @@ prompt_server_name() {
   fi
   set_interactive_device
   while true; do
-    printf -v prompt_text '❯ %s TLS server_name [%s]： ' "${label}" "${default_value}"
-    IFS= read -e -r -i "${default_value}" -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    printf -v prompt_text '%s TLS 证书校验名称（server_name）：' "${label}"
+    read_editable entered "${prompt_text}" "${default_value}"
     entered="$(trim_value "${entered:-${default_value}}")"
     if [[ "${entered}" =~ ^[A-Za-z0-9._-]+$ ]]; then
       printf -v "${variable_name}" '%s' "${entered}"
@@ -374,8 +430,8 @@ prompt_monitor_name() {
     return 0
   fi
   while true; do
-    printf -v prompt_text '❯ 监控节点名称（用于 Grafana 区分主机）[%s]： ' "${default_value}"
-    IFS= read -e -r -i "${default_value}" -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取监控节点名称失败"
+    printf -v prompt_text '监控节点名称（用于 Grafana 区分主机）：'
+    read_editable entered "${prompt_text}" "${default_value}"
     entered="$(trim_value "${entered:-${default_value}}")"
     if valid_monitor_name "${entered}"; then
       MONITOR_NAME="${entered}"
@@ -434,62 +490,74 @@ load_existing_settings() {
 
 choose_install_action() {
   set_interactive_device
-  printf '%s  1.%s 安装 Grafana Alloy（默认）\n' "${ORANGE}" "${RESET}" >&2
-  printf '%s  2.%s 查看安装状态\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  3.%s 彻底清理残留配置和数据\n' "${RED}" "${RESET}" >&2
-  printf '%s  q.%s 退出\n' "${BLUE}" "${RESET}" >&2
+  menu_section "请选择操作"
+  menu_option "1" "安装 Grafana Alloy" "推荐；进入地址与安全配置"
+  menu_option "2" "查看安装状态" "不修改系统"
+  menu_option "3" "彻底清理残留" "删除配置、证书和运行数据"
+  menu_exit "0/q" "退出"
   while true; do
     local choice=""
-    printf '%s请选择操作 [1-3]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
-    IFS= read -r choice <"${INTERACTIVE_DEVICE}" || die "读取操作失败"
+    read_editable choice "请选择 [1-3]（默认 1）："
     case "${choice}" in
       ""|1) SELECTED_ACTION="install"; return ;;
       2) SELECTED_ACTION="status"; return ;;
       3) SELECTED_ACTION="purge"; return ;;
-      q|Q) SELECTED_ACTION="quit"; return ;;
-      *) warn "输入无效：请输入 1、2、3 或 q" ;;
+      0|q|Q) SELECTED_ACTION="quit"; return ;;
+      *) invalid_choice ;;
     esac
   done
 }
 
 choose_maintenance_action() {
   set_interactive_device
-  printf '%s  1.%s 更新 Alloy 软件包（保留现有配置）\n' "${ORANGE}" "${RESET}" >&2
-  printf '%s  2.%s 仅重新配置（默认）\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  3.%s 查看状态和受管文件\n' "${BLUE}" "${RESET}" >&2
-  printf '%s  4.%s 普通卸载（保留配置、证书和数据）\n' "${YELLOW}" "${RESET}" >&2
-  printf '%s  5.%s 彻底清理（删除配置、证书和数据）\n' "${RED}" "${RESET}" >&2
-  printf '%s  q.%s 退出\n' "${BLUE}" "${RESET}" >&2
+  menu_section "请选择维护操作"
+  menu_option "1" "更新 Alloy 软件包" "保留节点名称、配置、证书和数据"
+  menu_option "2" "仅重新配置" "默认；不更新软件包"
+  menu_option "3" "查看状态与文件" "不修改系统"
+  menu_option "4" "普通卸载" "保留配置、证书和运行数据"
+  menu_option "5" "彻底清理" "永久删除配置、证书和运行数据"
+  menu_exit "0/q" "退出"
   while true; do
     local choice=""
-    printf '%s请选择维护操作 [1-5]（默认 2）：%s' "${BLUE}" "${RESET}" >&2
-    IFS= read -r choice <"${INTERACTIVE_DEVICE}" || die "读取维护操作失败"
+    read_editable choice "请选择 [1-5]（默认 2）："
     case "${choice}" in
       1) SELECTED_ACTION="update"; return ;;
       ""|2) SELECTED_ACTION="reconfigure"; return ;;
       3) SELECTED_ACTION="status"; return ;;
       4) SELECTED_ACTION="uninstall"; return ;;
       5) SELECTED_ACTION="purge"; return ;;
-      q|Q) SELECTED_ACTION="quit"; return ;;
-      *) warn "输入无效：请输入 1、2、3、4、5 或 q" ;;
+      0|q|Q) SELECTED_ACTION="quit"; return ;;
+      *) invalid_choice ;;
     esac
   done
 }
 
 choose_uninstall_mode() {
   set_interactive_device
-  printf '%s  1.%s 普通卸载（保留 /etc/alloy 和 /var/lib/alloy，默认）\n' "${GREEN}" "${RESET}" >&2
-  printf '%s  2.%s 彻底清理（删除配置、证书和数据）\n' "${RED}" "${RESET}" >&2
-  printf '%s  q.%s 取消\n' "${BLUE}" "${RESET}" >&2
+  menu_section "请选择卸载方式"
+  menu_option "1" "普通卸载" "默认；保留 /etc/alloy 和 /var/lib/alloy"
+  menu_option "2" "彻底清理" "永久删除配置、证书和运行数据"
+  menu_exit "0/q" "取消并返回"
   while true; do
     local choice=""
-    printf '%s请选择卸载方式 [1-2]（默认 1）：%s' "${BLUE}" "${RESET}" >&2
-    IFS= read -r choice <"${INTERACTIVE_DEVICE}" || die "读取卸载方式失败"
+    read_editable choice "请选择 [1-2]（默认 1）："
     case "${choice}" in
       ""|1) PURGE_MODE=0; return ;;
-      2) PURGE_MODE=1; return ;;
-      q|Q) RETURN_TO_MAIN=1; return ;;
-      *) warn "输入无效：请输入 1、2 或 q" ;;
+      2)
+        danger_card "彻底清理警告" \
+          "将删除" "${CONFIG_DIR}、${DATA_DIR}" \
+          "不可恢复" "mTLS 证书、节点名称、配置和运行数据"
+        PURGE_MODE=1
+        return
+        ;;
+      0|q|Q)
+        RETURN_TO_MAIN=1
+        warning_card "卸载已取消" \
+          "已保留" "Alloy 程序、配置、证书和运行数据" \
+          "系统修改" "无"
+        return
+        ;;
+      *) invalid_choice ;;
     esac
   done
 }
@@ -644,27 +712,30 @@ edit_pem_file() {
   local content_description="$4"
   local content_warning="$5"
   local answer=""
+  local pem_header="-----BEGIN CERTIFICATE-----"
+
+  [[ "${content_type}" == "certificate" ]] || pem_header="-----BEGIN PRIVATE KEY-----（也支持 RSA/EC 私钥）"
 
   install -d -o root -g alloy -m 0750 "${TLS_DIR}"
   [[ -e "${file_path}" ]] || install -o root -g alloy -m 0640 /dev/null "${file_path}"
   while true; do
-    printf '\n'
-    step "配置${content_name}"
-    info "填写内容：${content_description}"
-    warn "不要填写：${content_warning}"
-    if [[ "${content_type}" == "certificate" ]]; then
-      info "PEM 开头：-----BEGIN CERTIFICATE-----"
-    else
-      info "PEM 开头：-----BEGIN PRIVATE KEY-----（也支持 RSA/EC 私钥）"
-    fi
-    info "受管文件：${file_path}"
-    info "以后可手动编辑：sudo ${TEXT_EDITOR##*/} ${file_path}"
-    printf '%s按回车打开 %s，输入 q 取消本次配置：%s' "${BLUE}" "${TEXT_EDITOR##*/}" "${RESET}" >&2
-    IFS= read -r answer <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    warning_card "配置 ${content_name}" \
+      "应填写" "${content_description}" \
+      "不要填写" "${content_warning}" \
+      "PEM 开头" "${pem_header}" \
+      "受管文件" "${file_path}" \
+      "编辑器" "${TEXT_EDITOR##*/}"
+    read_editable answer "按回车打开编辑器；输入 0/q 取消："
     case "${answer}" in
       "") ;;
-      q|Q) RETURN_TO_MAIN=1; return 0 ;;
-      *) warn "请直接按回车打开编辑器，或输入 q 返回"; continue ;;
+      0|q|Q)
+        RETURN_TO_MAIN=1
+        warning_card "配置已取消" \
+          "已保留" "操作前的 Alloy 配置和证书" \
+          "系统修改" "无"
+        return 0
+        ;;
+      *) invalid_choice; continue ;;
     esac
     if ! open_text_editor "${file_path}"; then
       warn "编辑器异常退出，请重试"
@@ -800,9 +871,10 @@ choose_backend_mtls_mode() {
       result "${label} 将使用 HTTPS + mTLS"
       return 0
     fi
-    printf '\n'
-    warn "${label} 将使用 HTTP 明文传输，数据和请求内容可能被网络中的其他设备读取或篡改"
-    warn "请通过防火墙限制中心端口只允许可信探针 IP 访问"
+    warning_card "HTTP 明文传输风险" \
+      "服务" "${label}" \
+      "风险" "数据和请求内容可能被读取或篡改" \
+      "建议" "通过防火墙仅允许可信探针 IP 访问中心端口"
     if ask_yes_no_default "确认接受风险并让 ${label} 使用 HTTP" no; then
       printf -v "${enabled_variable}" '%s' 0
       result "已确认：${label} 将使用 HTTP（未加密）"
@@ -822,6 +894,11 @@ collect_connection_settings() {
 
   printf '\n'
   step "配置数据接收中心"
+  print_card "${BLUE}" "接入说明" \
+    "指标" "推送至 Prometheus /api/v1/write" \
+    "日志" "推送至 Loki /loki/api/v1/push" \
+    "节点名称" "用于 Grafana 中区分不同服务器" \
+    "安全模式" "Prometheus 与 Loki 分别选择 mTLS 或 HTTP"
   prompt_monitor_name
   info "Prometheus 接收端必须已单独开启远程写入接收；mTLS 为推荐项但不再强制"
   if [[ "${PROMETHEUS_MTLS_MODE_PRESET}" == "0" && -n "${prometheus_env_configured}" ]]; then
@@ -1040,7 +1117,7 @@ update_probe() {
 }
 
 show_status() {
-  local version active enabled prometheus_status loki_status
+  local version active enabled prometheus_status loki_status status_color
   version="$(installed_version)"
   active="$(systemctl is-active alloy.service 2>/dev/null || true)"
   enabled="$(systemctl is-enabled alloy.service 2>/dev/null || true)"
@@ -1049,19 +1126,22 @@ show_status() {
   loki_status="未启用（HTTP，未加密）"
   [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] && prometheus_status="已启用"
   [[ "${LOKI_MTLS_ENABLED}" == "1" ]] && loki_status="已启用"
+  status_color="${RED}"
+  [[ "${active}" == "active" ]] && status_color="${GREEN}"
+  [[ "${active}" == "activating" ]] && status_color="${YELLOW}"
 
-  printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Grafana Alloy" "${RESET}"
-  printf '%s│ %s安装版本：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${version:-未安装}"
-  printf '%s│ %s服务状态：%s%s；开机自启：%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${active:-未知}" "${enabled:-未知}"
-  printf '%s│ %s节点名称：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${MONITOR_NAME:-未配置}"
-  printf '%s│ %sPrometheus：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${PROMETHEUS_URL:-未配置}"
-  printf '%s│ %sPrometheus mTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${prometheus_status}"
-  printf '%s│ %sLoki：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${LOKI_URL:-未配置}"
-  printf '%s│ %sLoki mTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${loki_status}"
-  printf '%s│ %s配置文件：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${CONFIG_FILE}"
-  printf '%s│ %s证书目录：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${TLS_DIR}"
-  printf '%s│ %s数据目录：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${DATA_DIR}"
-  printf '%s%s%s\n' "${ORANGE}" "╰────────────────────────────────────────────────────" "${RESET}"
+  print_card "${status_color}" "运行状态" \
+    "安装版本" "${version:-未安装}" \
+    "服务状态" "${active:-未知}" \
+    "开机自启" "${enabled:-未知}" \
+    "节点名称" "${MONITOR_NAME:-未配置}" \
+    "Prometheus" "${PROMETHEUS_URL:-未配置}" \
+    "Prometheus mTLS" "${prometheus_status}" \
+    "Loki" "${LOKI_URL:-未配置}" \
+    "Loki mTLS" "${loki_status}" \
+    "配置文件" "${CONFIG_FILE}" \
+    "证书目录" "${TLS_DIR}" \
+    "数据目录" "${DATA_DIR}"
 }
 
 uninstall_probe() {
@@ -1085,6 +1165,16 @@ uninstall_probe() {
       ;;
   esac
 
+  if [[ "${PURGE_MODE}" == "1" ]] && detect_interactive_device; then
+    if ! ask_yes_no_default "确认永久删除 Alloy 配置、证书和运行数据" no; then
+      RETURN_TO_MAIN=1
+      warning_card "彻底清理已取消" \
+        "已保留" "${CONFIG_DIR}、${DATA_DIR}" \
+        "系统修改" "无"
+      return 0
+    fi
+  fi
+
   printf '\n'
   step "停止服务并卸载软件包"
   systemctl disable --now alloy.service >/dev/null 2>&1 || true
@@ -1102,11 +1192,11 @@ uninstall_probe() {
     step "删除受管配置、mTLS 证书和运行数据"
     rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"
     result "已删除 ${CONFIG_DIR} 和 ${DATA_DIR}"
-    print_uninstall_card "彻底清理完成" "${BLUE}已删除：${RESET}${CONFIG_DIR}、${DATA_DIR}"
+    print_uninstall_card "彻底清理完成" "已删除 ${CONFIG_DIR}、${DATA_DIR}"
   else
     info "配置和 mTLS 证书已保留：${CONFIG_DIR}"
     info "Alloy 运行数据已保留：${DATA_DIR}"
-    print_uninstall_card "普通卸载完成" "${BLUE}已保留：${RESET}${CONFIG_DIR}、${DATA_DIR}"
+    print_uninstall_card "普通卸载完成" "已保留 ${CONFIG_DIR}、${DATA_DIR}"
   fi
 }
 
@@ -1125,6 +1215,14 @@ on_error() {
   local line_number="$2"
   printf '%s[错误]%s 脚本在第 %s 行执行失败（退出码：%s）\n' "${RED}" "${RESET}" "${line_number}" "${exit_code}" >&2
   exit "${exit_code}"
+}
+
+on_signal() {
+  printf '\n'
+  warning_card "操作已中止" \
+    "原因" "收到中断信号" \
+    "处理" "临时文件已清理；未提交的配置会恢复"
+  exit 130
 }
 
 main() {
@@ -1190,12 +1288,14 @@ main() {
       fi
       ;;
     purge) uninstall_probe purge ;;
-    quit) result "已退出，未修改系统" ;;
+    quit) exit_card "已退出" ;;
   esac
+
 }
 
 if [[ "${ALLOY_INSTALLER_SOURCE_ONLY:-0}" != "1" ]]; then
   trap 'on_error "$?" "$LINENO"' ERR
+  trap on_signal INT TERM
   trap cleanup EXIT
   init_colors
   main "$@"

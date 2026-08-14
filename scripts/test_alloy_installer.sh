@@ -64,6 +64,24 @@ if [[ "${LOKI_MTLS_ENABLED}" != "0" ]]; then
   exit 1
 fi
 
+printf 'q\n' >"${TEST_INPUT}"
+INTERACTIVE_DEVICE="${TEST_INPUT}"
+SELECTED_ACTION="install"
+choose_install_action >/dev/null 2>&1
+if [[ "${SELECTED_ACTION}" != "quit" ]]; then
+  printf 'Alloy 顶层 q 没有退出脚本\n' >&2
+  exit 1
+fi
+
+printf '0\n' >"${TEST_INPUT}"
+INTERACTIVE_DEVICE="${TEST_INPUT}"
+RETURN_TO_MAIN=0
+choose_uninstall_mode >/dev/null 2>&1
+if [[ "${RETURN_TO_MAIN}" != "1" ]]; then
+  printf 'Alloy 卸载菜单 0 没有取消操作\n' >&2
+  exit 1
+fi
+
 HELP_OUTPUT="$(NO_COLOR=1 bash "${INSTALLER}" --help)"
 for expected in \
   'install.sh reconfigure' \
@@ -89,8 +107,11 @@ for expected in \
   'PACKAGE_WAS_INSTALLED' \
   'choose_backend_mtls_mode()' \
   '确认接受风险并让 ${label} 使用 HTTP' \
-  'read -e -r -i "${value}" -p "${prompt_text}" entered' \
-  'read -e -r -p "${prompt_text}" entered' \
+  'read_editable()' \
+  'menu_option()' \
+  'menu_exit()' \
+  'warning_card()' \
+  'trap on_signal INT TERM' \
   'prometheus.relabel "host_identity"' \
   'target_label = "instance"' \
   'host = "${MONITOR_NAME}"' \
@@ -98,12 +119,50 @@ for expected in \
   'prometheus_tls_config=""' \
   'alloy validate "${temp_file}"' \
   'rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"' \
-  '未清理：'; do
+  '"未清理"'; do
   grep -Fq -- "${expected}" "${INSTALLER}" || {
     printf 'Alloy 维护框架缺少：%s\n' "${expected}" >&2
     exit 1
   }
 done
+
+
+for expected in \
+  'MonitorKit  ›  node_exporter' \
+  'read_editable()' \
+  'menu_option()' \
+  'menu_exit "0/q" "退出"' \
+  'SELECTED_ACTION="quit"' \
+  'trap on_signal INT TERM' \
+  'NODE_EXPORTER_INSTALLER_SOURCE_ONLY'; do
+  grep -Fq -- "${expected}" "${NODE_EXPORTER_INSTALLER}" || {
+    printf 'node_exporter 交互框架缺少：%s\n' "${expected}" >&2
+    exit 1
+  }
+done
+
+printf 'q\n' >"${TEST_INPUT}"
+if ! NO_COLOR=1 NODE_EXPORTER_INSTALLER_SOURCE_ONLY=1 NODE_TEST_INPUT="${TEST_INPUT}" \
+  bash -c '
+    source "$1"
+    INTERACTIVE_DEVICE="${NODE_TEST_INPUT}"
+    choose_install_mode >/dev/null 2>&1
+    [[ "${SELECTED_ACTION}" == "quit" ]]
+  ' _ "${NODE_EXPORTER_INSTALLER}"; then
+  printf 'node_exporter 顶层 q 没有退出脚本\n' >&2
+  exit 1
+fi
+
+if ! NO_COLOR=1 NODE_EXPORTER_INSTALLER_SOURCE_ONLY=1 \
+  bash -c '
+    source "$1"
+    uninstall_node_exporter() { RETURN_TO_MAIN=1; }
+    require_root() { return 9; }
+    main uninstall
+  ' _ "${NODE_EXPORTER_INSTALLER}"; then
+  printf 'node_exporter 直接卸载取消后错误地继续了安装流程\n' >&2
+  exit 1
+fi
 
 ca_line="$(grep -nF 'edit_pem_file "${label} 服务端 CA 证书"' "${INSTALLER}" | cut -d: -f1)"
 cert_line="$(grep -nF 'edit_pem_file "${label} Alloy 完整客户端证书"' "${INSTALLER}" | cut -d: -f1)"
