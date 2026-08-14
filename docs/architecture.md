@@ -6,15 +6,17 @@ SnailMon 分为中心端和探针端。中心服务器运行 Go 管理程序，�
 
 ```text
 cmd/snailmon/                 程序入口与 CLI 参数
+internal/app/                 交互菜单与业务流程编排
 internal/manager/             组件生命周期、组件注册、下载和安装基础设施
 internal/server/              HTTP API 与鉴权
+internal/ui/                  终端视觉组件、状态徽标与操作反馈
 configs/                      中心端配置示例
 deploy/systemd/               中心端 systemd 部署文件
 scripts/probes/<name>/        探针安装脚本，每个探针一个目录
 docs/                         架构和运维文档
 ```
 
-`internal/server` 仅依赖 `Manager` 接口，不包含 Prometheus 或 Loki 的分支逻辑。组件元数据统一注册在 `internal/manager/spec.go`，下载、SHA-256 校验和压缩包处理是公共能力。
+`internal/app` 只负责编排交互流程，`internal/ui` 不依赖监控业务。`internal/server` 仅依赖 `Manager` 接口，不包含 Prometheus 或 Loki 的分支逻辑。组件元数据统一注册在 `internal/manager/spec.go`，下载、SHA-256 校验和压缩包处理是公共能力。
 
 ## 扩展中心组件
 

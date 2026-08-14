@@ -8,8 +8,10 @@ SnailMon 是一套中心化服务器监控配置工具：中心服务器运行 G
 Snailbash/
 ├── cmd/snailmon/                  # Go 中心端入口
 ├── internal/
+│   ├── app/                       # 交互菜单与业务流程编排
 │   ├── manager/                   # 组件注册、下载、校验、安装与 systemd 管理
-│   └── server/                    # HTTP API、鉴权和响应模型
+│   ├── server/                    # HTTP API、鉴权和响应模型
+│   └── ui/                        # 终端视觉组件与操作反馈
 ├── configs/                       # 配置示例
 ├── deploy/systemd/                # 中心端 systemd unit
 ├── scripts/probes/
@@ -25,9 +27,23 @@ Snailbash/
 需要 Go 1.22 或更高版本：
 
 ```bash
-make build
+./build.sh
 sudo install -m 0755 bin/snailmon /usr/local/bin/snailmon
 ```
+
+也可以运行 `make build`。编译脚本默认生成 `bin/snailmon`，并支持通过环境变量自定义输出路径或进行交叉编译：
+
+```bash
+OUTPUT=dist/snailmon-linux-amd64 GOOS=linux GOARCH=amd64 ./build.sh
+```
+
+启动交互式管理界面：
+
+```bash
+sudo snailmon
+```
+
+交互界面提供中心组件状态总览、Prometheus/Loki 独立管理、监控栈一键部署、探针接入命令和 HTTP API 信息。终端支持颜色时会显示状态徽标和动态操作反馈；设置 `NO_COLOR=1` 可关闭颜色。
 
 直接使用 CLI 安装中心组件：
 

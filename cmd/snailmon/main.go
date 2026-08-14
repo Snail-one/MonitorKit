@@ -12,13 +12,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Snail-one/Snailbash/internal/app"
 	"github.com/Snail-one/Snailbash/internal/manager"
 	api "github.com/Snail-one/Snailbash/internal/server"
+	"github.com/Snail-one/Snailbash/internal/ui"
 )
 
 const usage = `SnailMon 中心端管理程序
 
 用法：
+  snailmon                                      # 交互式管理界面
   snailmon install <prometheus|loki> [--version latest]
   snailmon uninstall <prometheus|loki> [--purge]
   snailmon status [prometheus|loki]
@@ -39,15 +42,13 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) == 0 {
-		fmt.Print(usage)
-		return nil
-	}
-
 	root := envOr("SNAILMON_ROOT", "/")
 	mgr, err := manager.New(root)
 	if err != nil {
 		return err
+	}
+	if len(args) == 0 {
+		return app.New(mgr, ui.New(os.Stdin, os.Stdout)).Run(context.Background())
 	}
 
 	switch args[0] {
