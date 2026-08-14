@@ -15,8 +15,7 @@ Snailbash/
 ├── scripts/probes/
 │   ├── node_exporter/install.sh   # 主机指标探针
 │   └── alloy/install.sh           # Loki 日志探针
-├── docs/architecture.md           # 扩展规范
-└── prometheus/                    # 旧脚本兼容入口和历史文档
+└── docs/architecture.md           # 扩展规范
 ```
 
 详细的分层和扩展方式见 [架构文档](docs/architecture.md)。
