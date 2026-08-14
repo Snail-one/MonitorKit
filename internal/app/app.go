@@ -1,4 +1,4 @@
-// Package app coordinates SnailMon's interactive terminal experience.
+// Package app coordinates MonitorKit's interactive terminal experience.
 package app
 
 import (
@@ -268,15 +268,15 @@ func (a *App) probeMenu() error {
 }
 
 func (a *App) apiInfo() {
-	listen := valueOr(os.Getenv("SNAILMON_LISTEN"), "127.0.0.1:8088")
+	listen := valueOr(os.Getenv("MONITORKIT_LISTEN"), "127.0.0.1:8088")
 	auth := "仅本机访问，可不配置 Token"
-	if os.Getenv("SNAILMON_TOKEN") != "" {
+	if os.Getenv("MONITORKIT_TOKEN") != "" {
 		auth = "Bearer Token 已配置"
 	}
 	a.ui.Clear()
 	a.ui.Title("管理接口")
 	a.ui.Card(ui.Neutral, "自动化管理入口",
-		ui.Field{Label: "启动命令", Value: "sudo snailmon serve"},
+		ui.Field{Label: "启动命令", Value: "sudo monitorkit serve"},
 		ui.Field{Label: "监听地址", Value: listen},
 		ui.Field{Label: "访问控制", Value: auth},
 		ui.Field{Label: "组件接口", Value: "/api/v1/components"},

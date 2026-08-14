@@ -83,7 +83,7 @@ func (m *Manager) Install(ctx context.Context, name, wantedVersion string) (Stat
 		return Status{}, err
 	}
 
-	tempDir, err := os.MkdirTemp("", "snailmon-"+name+"-")
+	tempDir, err := os.MkdirTemp("", "monitorkit-"+name+"-")
 	if err != nil {
 		return Status{}, fmt.Errorf("创建临时目录：%w", err)
 	}
@@ -292,7 +292,7 @@ func installFile(source, destination string, mode os.FileMode) error {
 		return err
 	}
 	defer input.Close()
-	temp, err := os.CreateTemp(filepath.Dir(destination), ".snailmon-*")
+	temp, err := os.CreateTemp(filepath.Dir(destination), ".monitorkit-*")
 	if err != nil {
 		return err
 	}
@@ -313,7 +313,7 @@ func installFile(source, destination string, mode os.FileMode) error {
 }
 
 func atomicWrite(destination string, content []byte, mode os.FileMode) error {
-	temp, err := os.CreateTemp(filepath.Dir(destination), ".snailmon-*")
+	temp, err := os.CreateTemp(filepath.Dir(destination), ".monitorkit-*")
 	if err != nil {
 		return err
 	}

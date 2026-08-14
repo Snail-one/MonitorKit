@@ -21,7 +21,7 @@ func TestPlainOutputHasStableHierarchy(t *testing.T) {
 		t.Fatalf("answer = %q", answer)
 	}
 	got := output.String()
-	for _, want := range []string{"╭─ SnailMon", "监控中心", "指标服务", "[运行中]", "0/q", "❯ 选择："} {
+	for _, want := range []string{"╭─ MonitorKit", "监控中心", "指标服务", "[运行中]", "0/q", "❯ 选择："} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output does not contain %q:\n%s", want, got)
 		}

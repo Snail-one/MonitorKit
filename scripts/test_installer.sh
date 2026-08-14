@@ -18,11 +18,11 @@ case "$(uname -m)" in
 esac
 
 VERSION="v9.9.9-test"
-ASSET="snailmon_linux_${ARCH}_${VERSION}"
+ASSET="monitorkit_linux_${ARCH}_${VERSION}"
 cat >"${FAKE_RELEASE_DIR}/${ASSET}" <<EOF
 #!/bin/sh
 if [ "\${1:-}" = "--version" ]; then
-  printf 'snailmon ${VERSION}\\ncommit: installer-test\\n'
+  printf 'monitorkit ${VERSION}\\ncommit: installer-test\\n'
   exit 0
 fi
 printf 'fixture binary\\n'
@@ -70,14 +70,14 @@ export PATH="${FAKE_BIN_DIR}:${PATH}"
 export NO_COLOR=1
 
 MONITORKIT_INSTALL_DIR="${INSTALL_DIR}" sh "${ROOT_DIR}/scripts/install.sh"
-test -x "${INSTALL_DIR}/snailmon"
-test "$("${INSTALL_DIR}/snailmon" --version | sed -n '1p')" = "snailmon ${VERSION}"
-test "$(sha256sum "${INSTALL_DIR}/snailmon" | awk '{print $1}')" = "${SHA256}"
+test -x "${INSTALL_DIR}/monitorkit"
+test "$("${INSTALL_DIR}/monitorkit" --version | sed -n '1p')" = "monitorkit ${VERSION}"
+test "$(sha256sum "${INSTALL_DIR}/monitorkit" | awk '{print $1}')" = "${SHA256}"
 
 # 相同版本和哈希再次执行时应安全跳过。
 MONITORKIT_INSTALL_DIR="${INSTALL_DIR}" sh "${ROOT_DIR}/scripts/install.sh" "${VERSION}"
 
 MONITORKIT_INSTALL_DIR="${INSTALL_DIR}" sh "${ROOT_DIR}/scripts/install.sh" --uninstall
-test ! -e "${INSTALL_DIR}/snailmon"
+test ! -e "${INSTALL_DIR}/monitorkit"
 
 printf '安装器离线回归测试通过\n'

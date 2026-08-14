@@ -6,9 +6,9 @@
 
 | 对象 | 普通卸载 | 彻底清理 |
 | --- | --- | --- |
-| MonitorKit 自身 | `sudo snailmon uninstall` | 没有额外 purge；只管理自身二进制 |
-| Prometheus | `sudo snailmon uninstall prometheus` | `sudo snailmon uninstall prometheus --purge` |
-| Loki | `sudo snailmon uninstall loki` | `sudo snailmon uninstall loki --purge` |
+| MonitorKit 自身 | `sudo monitorkit uninstall` | 没有额外 purge；只管理自身二进制 |
+| Prometheus | `sudo monitorkit uninstall prometheus` | `sudo monitorkit uninstall prometheus --purge` |
+| Loki | `sudo monitorkit uninstall loki` | `sudo monitorkit uninstall loki --purge` |
 | node_exporter | `sudo bash scripts/probes/node_exporter/install.sh uninstall` | `sudo bash scripts/probes/node_exporter/install.sh purge` |
 | Grafana Alloy | `sudo bash scripts/probes/alloy/install.sh uninstall` | `sudo bash scripts/probes/alloy/install.sh purge` |
 
@@ -19,14 +19,14 @@
 在线安装脚本默认只持久写入：
 
 ```text
-/usr/local/bin/snailmon
+/usr/local/bin/monitorkit
 ```
 
 安装期间还会使用以下临时文件，正常结束或失败退出时自动删除：
 
 ```text
 /tmp/monitorkit-install.*/
-/usr/local/bin/.snailmon.new.<PID>
+/usr/local/bin/.monitorkit.new.<PID>
 ```
 
 `MONITORKIT_INSTALL_DIR` 和 `MONITORKIT_BINARY_NAME` 可以改变实际安装位置及文件名。
@@ -34,7 +34,7 @@
 执行以下任一命令只删除管理程序二进制：
 
 ```bash
-sudo snailmon uninstall
+sudo monitorkit uninstall
 curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/install.sh | sudo sh -s -- --uninstall
 ```
 
@@ -42,15 +42,15 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 
 - Prometheus 与 Loki 的服务、二进制、配置、数据和系统账号；
 - 任意被监控服务器上的 node_exporter 或 Alloy；
-- 手动部署的 `snailmon.service`、API 环境变量文件及启用链接；
+- 手动部署的 `monitorkit.service`、API 环境变量文件及启用链接；
 - GitHub 下载缓存以外的任何用户文件。
 
-仓库中的 `deploy/systemd/snailmon.service` 和 `configs/snailmon.env.example` 只是部署模板，在线安装器不会自动复制它们。如果管理员手动部署 API 服务，通常会另外产生：
+仓库中的 `deploy/systemd/monitorkit.service` 和 `configs/monitorkit.env.example` 只是部署模板，在线安装器不会自动复制它们。如果管理员手动部署 API 服务，通常会另外产生：
 
 ```text
-/etc/systemd/system/snailmon.service
-/etc/systemd/system/multi-user.target.wants/snailmon.service
-/etc/snailmon/snailmon.env
+/etc/systemd/system/monitorkit.service
+/etc/systemd/system/multi-user.target.wants/monitorkit.service
+/etc/monitorkit/monitorkit.env
 ```
 
 这些手动部署文件不属于自身卸载脚本的删除范围，需要管理员自行停止服务并按实际部署路径处理。
@@ -190,4 +190,4 @@ alloy 用户、组及其附加组成员关系
 /tmp/
 ```
 
-下载和解压使用的 MonitorKit 临时目录会在进程正常结束或返回错误时清理；系统强制断电或 `SIGKILL` 时可能遗留带有 `monitorkit-install.*`、`snailmon-*` 等前缀的临时目录。
+下载和解压使用的 MonitorKit 临时目录会在进程正常结束或返回错误时清理；系统强制断电或 `SIGKILL` 时可能遗留带有 `monitorkit-install.*`、`monitorkit-*` 等前缀的临时目录。

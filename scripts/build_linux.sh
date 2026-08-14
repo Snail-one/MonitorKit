@@ -14,7 +14,7 @@ case "${ARCH}" in
   amd64|arm64) ;;
   *) printf '不支持的发布架构：%s\n' "${ARCH}" >&2; exit 1 ;;
 esac
-OUTPUT="${OUTPUT:-dist/snailmon_linux_${ARCH}_${VERSION}}"
+OUTPUT="${OUTPUT:-dist/monitorkit_linux_${ARCH}_${VERSION}}"
 if [[ "${OUTPUT}" != /* ]]; then
   OUTPUT="${ROOT_DIR}/${OUTPUT}"
 fi
@@ -23,5 +23,5 @@ COMMIT="${COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || printf unknown)}"
 BUILD_DATE="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 LDFLAGS="-s -w -X github.com/Snail-one/MonitorKit/internal/version.Version=${VERSION} -X github.com/Snail-one/MonitorKit/internal/version.Commit=${COMMIT} -X github.com/Snail-one/MonitorKit/internal/version.BuildDate=${BUILD_DATE}"
 
-CGO_ENABLED=0 GOOS=linux GOARCH="${ARCH}" go build -trimpath -ldflags="${LDFLAGS}" -o "${OUTPUT}" ./cmd/snailmon
+CGO_ENABLED=0 GOOS=linux GOARCH="${ARCH}" go build -trimpath -ldflags="${LDFLAGS}" -o "${OUTPUT}" ./cmd/monitorkit
 printf '构建完成：%s\n' "${OUTPUT}"

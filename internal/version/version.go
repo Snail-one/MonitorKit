@@ -14,7 +14,7 @@ var (
 
 func Info() string {
 	return fmt.Sprintf(
-		"snailmon %s\ncommit: %s\nbuild date: %s\ngo: %s\nplatform: %s/%s",
+		"monitorkit %s\ncommit: %s\nbuild date: %s\ngo: %s\nplatform: %s/%s",
 		Version,
 		Commit,
 		BuildDate,

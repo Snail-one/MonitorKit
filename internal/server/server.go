@@ -36,7 +36,7 @@ func New(mgr Manager, token, listen string) (http.Handler, error) {
 		return nil, errors.New("manager 不能为空")
 	}
 	if token == "" && !isLoopbackListen(listen) {
-		return nil, errors.New("监听非本机地址时必须设置 SNAILMON_TOKEN 或 --token")
+		return nil, errors.New("监听非本机地址时必须设置 MONITORKIT_TOKEN 或 --token")
 	}
 	api := &API{manager: mgr, token: token, mux: http.NewServeMux()}
 	api.mux.HandleFunc("GET /healthz", api.health)

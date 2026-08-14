@@ -4,7 +4,7 @@ set -eu
 
 REPOSITORY="Snail-one/MonitorKit"
 INSTALL_DIR="${MONITORKIT_INSTALL_DIR:-/usr/local/bin}"
-BINARY_NAME="${MONITORKIT_BINARY_NAME:-snailmon}"
+BINARY_NAME="${MONITORKIT_BINARY_NAME:-monitorkit}"
 RELEASE="${MONITORKIT_VERSION:-latest}"
 MODE="install"
 TEMP_DIR=""
@@ -67,6 +67,15 @@ completion_card() {
 	printf '%s%s%s\n' "$ORANGE" "╰────────────────────────────────────────────────────" "$RESET"
 }
 
+uninstall_completion_card() {
+	printf '\n%s%s%s\n' "$BOLD$ORANGE" "╭─ MonitorKit" "$RESET"
+	printf '%s│ %s卸载完成%s\n' "$ORANGE" "$BOLD$GREEN" "$RESET"
+	printf '%s│ %s原版本：%s%s%s%s\n' "$ORANGE" "$BLUE" "$RESET" "$BOLD" "$1" "$RESET"
+	printf '%s│ %s已删除：%s%s\n' "$ORANGE" "$BLUE" "$RESET" "$2"
+	printf '%s│ %s已保留：%s%s\n' "$ORANGE" "$BLUE" "$RESET" "Prometheus、Loki、配置和监控数据"
+	printf '%s%s%s\n' "$ORANGE" "╰────────────────────────────────────────────────────" "$RESET"
+}
+
 usage() {
 	cat <<'EOF'
 MonitorKit 在线安装、更新与卸载脚本。
@@ -79,7 +88,7 @@ MonitorKit 在线安装、更新与卸载脚本。
 可选环境变量：
   MONITORKIT_VERSION       目标版本，默认为 latest
   MONITORKIT_INSTALL_DIR   安装目录，默认为 /usr/local/bin
-  MONITORKIT_BINARY_NAME   命令名，默认为 snailmon
+  MONITORKIT_BINARY_NAME   命令名，默认为 monitorkit
 
 卸载只删除 MonitorKit 管理程序，不删除 Prometheus、Loki、配置或监控数据。
 EOF
@@ -130,15 +139,14 @@ if [ "$MODE" = "uninstall" ]; then
 	fi
 	CURRENT_RELEASE="未知"
 	if [ -x "$TARGET" ]; then
-		CURRENT_RELEASE="$("$TARGET" --version 2>/dev/null | awk '$1 == "snailmon" { print $2; exit }' || true)"
+		CURRENT_RELEASE="$("$TARGET" --version 2>/dev/null | awk '$1 == "monitorkit" { print $2; exit }' || true)"
 		[ -n "$CURRENT_RELEASE" ] || CURRENT_RELEASE="未知"
 	fi
 	info "当前版本：$CURRENT_RELEASE"
 	info "程序路径：$TARGET"
 	rm -f -- "$TARGET"
 	[ ! -e "$TARGET" ] && [ ! -L "$TARGET" ] || fail "无法删除程序文件：$TARGET"
-	result "MonitorKit 管理程序已卸载"
-	info "Prometheus、Loki、配置和监控数据均已保留"
+	uninstall_completion_card "$CURRENT_RELEASE" "$TARGET"
 	exit 0
 fi
 
@@ -189,8 +197,8 @@ release_from_checksums() {
 		{
 			name = $2
 			sub(/^\*/, "", name)
-			if (name ~ /^snailmon_linux_(amd64|arm64)_/) {
-				sub(/^snailmon_linux_(amd64|arm64)_/, "", name)
+			if (name ~ /^monitorkit_linux_(amd64|arm64)_/) {
+				sub(/^monitorkit_linux_(amd64|arm64)_/, "", name)
 				if (version == "") version = name
 				else if (version != name) mismatch = 1
 			}
@@ -234,7 +242,7 @@ case "$RELEASE_VERSION" in
 	*[!A-Za-z0-9._-]*) fail "发布版本包含不支持的字符：$RELEASE_VERSION" ;;
 esac
 
-ASSET="snailmon_linux_${ARCH}_${RELEASE_VERSION}"
+ASSET="monitorkit_linux_${ARCH}_${RELEASE_VERSION}"
 DOWNLOAD_BASE="https://github.com/${REPOSITORY}/releases/download/${RELEASE_VERSION}"
 ASSET_FILE="${TEMP_DIR}/${ASSET}"
 CHECKSUM_FILE="${TEMP_DIR}/checksums.txt"
@@ -251,7 +259,7 @@ esac
 CURRENT_DISPLAY="未安装"
 CURRENT_RELEASE=""
 if [ -x "$TARGET" ]; then
-	CURRENT_RELEASE="$("$TARGET" --version 2>/dev/null | awk '$1 == "snailmon" { print $2; exit }' || true)"
+	CURRENT_RELEASE="$("$TARGET" --version 2>/dev/null | awk '$1 == "monitorkit" { print $2; exit }' || true)"
 	CURRENT_DISPLAY="${CURRENT_RELEASE:-未知}"
 fi
 
@@ -284,7 +292,7 @@ step "校验发布文件"
 ACTUAL_SHA256="$(file_sha256 "$ASSET_FILE")"
 [ "$ACTUAL_SHA256" = "$EXPECTED_SHA256" ] || fail "发布文件 SHA-256 校验失败"
 chmod 0755 "$ASSET_FILE"
-DOWNLOADED_RELEASE="$("$ASSET_FILE" --version 2>/dev/null | awk '$1 == "snailmon" { print $2; exit }' || true)"
+DOWNLOADED_RELEASE="$("$ASSET_FILE" --version 2>/dev/null | awk '$1 == "monitorkit" { print $2; exit }' || true)"
 [ "$DOWNLOADED_RELEASE" = "$RELEASE_VERSION" ] || fail "下载文件版本不匹配：${DOWNLOADED_RELEASE:-无法识别}"
 result "版本与 SHA-256 校验通过"
 

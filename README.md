@@ -1,13 +1,13 @@
-# SnailMon
+# MonitorKit
 
-SnailMon 是一套中心化服务器监控配置工具：中心服务器运行 Go 管理程序，负责 Prometheus 和 Loki 的安装与生命周期管理；被监控服务器上的指标、日志探针全部使用独立 `.sh` 脚本安装。
+MonitorKit 是一套中心化服务器监控配置工具：中心服务器运行 Go 管理程序，负责 Prometheus 和 Loki 的安装与生命周期管理；被监控服务器上的指标、日志探针全部使用独立 `.sh` 脚本安装。
 
 ## 项目结构
 
 ```text
 MonitorKit/
 ├── .github/workflows/             # 日常 CI 与标签发布
-├── cmd/snailmon/                  # Go 中心端入口
+├── cmd/monitorkit/                # Go 中心端入口
 ├── internal/
 │   ├── app/                       # 交互菜单与业务流程编排
 │   ├── manager/                   # 组件注册、下载、校验、安装与 systemd 管理
@@ -32,11 +32,11 @@ MonitorKit/
 需要 Go 1.22 或更高版本：
 
 ```bash
-OUTPUT=bin/snailmon ./scripts/build_linux.sh
-sudo install -m 0755 bin/snailmon /usr/local/bin/snailmon
+OUTPUT=bin/monitorkit ./scripts/build_linux.sh
+sudo install -m 0755 bin/monitorkit /usr/local/bin/monitorkit
 ```
 
-也可以运行 `make build`。发布构建脚本默认生成带版本和架构的 `dist/snailmon_linux_<arch>_<version>`，并支持通过 `OUTPUT` 自定义本地输出路径：
+也可以运行 `make build`。发布构建脚本默认生成带版本和架构的 `dist/monitorkit_linux_<arch>_<version>`，并支持通过 `OUTPUT` 自定义本地输出路径：
 
 ```bash
 VERSION=v1.0.0 GOARCH=amd64 ./scripts/build_linux.sh
@@ -45,7 +45,7 @@ VERSION=v1.0.0 GOARCH=amd64 ./scripts/build_linux.sh
 启动交互式管理界面：
 
 ```bash
-sudo snailmon
+sudo monitorkit
 ```
 
 交互界面提供中心组件状态总览、Prometheus/Loki 独立管理、监控栈一键部署、探针接入命令和 HTTP API 信息。终端支持颜色时会显示状态徽标和动态操作反馈；设置 `NO_COLOR=1` 可关闭颜色。
@@ -61,9 +61,9 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 安装后可以直接更新或卸载管理程序：
 
 ```bash
-snailmon --version
-sudo snailmon update
-sudo snailmon uninstall
+monitorkit --version
+sudo monitorkit update
+sudo monitorkit uninstall
 ```
 
 在线卸载也可以直接调用脚本：
@@ -77,23 +77,23 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 直接使用 CLI 安装中心组件：
 
 ```bash
-sudo snailmon install prometheus
-sudo snailmon install loki
-snailmon status
+sudo monitorkit install prometheus
+sudo monitorkit install loki
+monitorkit status
 ```
 
 固定版本安装：
 
 ```bash
-sudo snailmon install prometheus --version 3.13.1
-sudo snailmon install loki --version 3.7.4
+sudo monitorkit install prometheus --version 3.13.1
+sudo monitorkit install loki --version 3.7.4
 ```
 
 普通卸载会保留配置和数据；彻底清理由显式参数控制：
 
 ```bash
-sudo snailmon uninstall prometheus
-sudo snailmon uninstall loki --purge
+sudo monitorkit uninstall prometheus
+sudo monitorkit uninstall loki --purge
 ```
 
 中心组件默认路径如下：
@@ -111,18 +111,18 @@ sudo snailmon uninstall loki --purge
 API 默认仅监听本机：
 
 ```bash
-sudo snailmon serve
+sudo monitorkit serve
 ```
 
 需要监听其他网卡时必须配置 Token：
 
 ```bash
-sudo SNAILMON_LISTEN=0.0.0.0:8088 \
-  SNAILMON_TOKEN="$(openssl rand -hex 32)" \
-  snailmon serve
+sudo MONITORKIT_LISTEN=0.0.0.0:8088 \
+  MONITORKIT_TOKEN="$(openssl rand -hex 32)" \
+  monitorkit serve
 ```
 
-可将 [systemd unit](deploy/systemd/snailmon.service) 安装到 `/etc/systemd/system/snailmon.service`，并参考 [环境变量示例](configs/snailmon.env.example) 创建 `/etc/snailmon/snailmon.env`。
+可将 [systemd unit](deploy/systemd/monitorkit.service) 安装到 `/etc/systemd/system/monitorkit.service`，并参考 [环境变量示例](configs/monitorkit.env.example) 创建 `/etc/monitorkit/monitorkit.env`。
 
 主要接口：
 

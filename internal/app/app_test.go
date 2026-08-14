@@ -22,7 +22,7 @@ func TestMainMenuExitsAndShowsMonitoringDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"SnailMon", "指标中心", "日志中心", "部署监控栈", "探针接入", "管理接口"} {
+	for _, want := range []string{"MonitorKit", "指标中心", "日志中心", "部署监控栈", "探针接入", "管理接口"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("menu does not contain %q:\n%s", want, got)
 		}

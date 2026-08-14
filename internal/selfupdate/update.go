@@ -28,7 +28,7 @@ func run(ctx context.Context, client *http.Client, scriptURL string, stdin io.Re
 	if err != nil {
 		return fmt.Errorf("创建安装脚本请求：%w", err)
 	}
-	req.Header.Set("User-Agent", "snailmon-selfupdate")
+	req.Header.Set("User-Agent", "monitorkit-selfupdate")
 	response, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("下载安装脚本失败：%w", err)

@@ -1,5 +1,5 @@
 [Unit]
-Description=SnailMon central monitoring manager
+Description=MonitorKit central monitoring manager
 Wants=network-online.target
 After=network-online.target
 
@@ -7,8 +7,8 @@ After=network-online.target
 Type=simple
 User=root
 Group=root
-EnvironmentFile=-/etc/snailmon/snailmon.env
-ExecStart=/usr/local/bin/snailmon serve
+EnvironmentFile=-/etc/monitorkit/monitorkit.env
+ExecStart=/usr/local/bin/monitorkit serve
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
@@ -17,4 +17,3 @@ ProtectHome=true
 
 [Install]
 WantedBy=multi-user.target
-

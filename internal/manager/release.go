@@ -63,7 +63,7 @@ func (m *Manager) getJSON(ctx context.Context, url string, target any) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "snailmon")
+	req.Header.Set("User-Agent", "monitorkit")
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -89,7 +89,7 @@ func (m *Manager) digestFromChecksumAsset(ctx context.Context, assets []releaseA
 		if err != nil {
 			continue
 		}
-		req.Header.Set("User-Agent", "snailmon")
+		req.Header.Set("User-Agent", "monitorkit")
 		resp, err := m.client.Do(req)
 		if err != nil {
 			continue
@@ -121,7 +121,7 @@ func (m *Manager) download(ctx context.Context, asset releaseAsset, destination 
 	if err != nil {
 		return err
 	}
-	req.Header.Set("User-Agent", "snailmon")
+	req.Header.Set("User-Agent", "monitorkit")
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return err

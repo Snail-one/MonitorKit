@@ -1,4 +1,4 @@
-// Package ui contains the terminal presentation primitives used by SnailMon.
+// Package ui contains the terminal presentation primitives used by MonitorKit.
 // It deliberately has no monitoring-domain dependencies so the visual system
 // can evolve independently from component lifecycle logic.
 package ui
@@ -63,14 +63,14 @@ func (u *UI) Clear() {
 }
 
 func (u *UI) Home(subtitle, access string, privileged bool) {
-	fmt.Fprintln(u.out, u.paint(orange, "╭─")+" "+u.paint(bold+orange, "SnailMon"))
+	fmt.Fprintln(u.out, u.paint(orange, "╭─")+" "+u.paint(bold+orange, "MonitorKit"))
 	fmt.Fprintln(u.out, u.paint(orange, "│")+" "+u.paint(orange, strings.TrimSpace(subtitle))+"  "+u.Badge(access, privileged))
 	fmt.Fprintln(u.out, u.paint(orange, "╰"+strings.Repeat("─", line)))
 	fmt.Fprintln(u.out)
 }
 
 func (u *UI) Title(parts ...string) {
-	clean := []string{"SnailMon"}
+	clean := []string{"MonitorKit"}
 	for _, part := range parts {
 		if part = strings.TrimSpace(part); part != "" {
 			clean = append(clean, part)
@@ -142,7 +142,7 @@ func (u *UI) Card(tone Tone, title string, fields ...Field) {
 	case Danger:
 		titleStyle = bold + red
 	}
-	fmt.Fprintln(u.out, u.paint(bold+orange, "╭─ SnailMon"))
+	fmt.Fprintln(u.out, u.paint(bold+orange, "╭─ MonitorKit"))
 	fmt.Fprintln(u.out, u.paint(orange, "│")+" "+u.paint(titleStyle, strings.TrimSpace(title)))
 	for _, field := range fields {
 		label := strings.TrimSpace(field.Label)

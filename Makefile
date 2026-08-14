@@ -1,6 +1,6 @@
 .PHONY: build test vet check
 
-BINARY := bin/snailmon
+BINARY := bin/monitorkit
 
 build:
 	OUTPUT=$(BINARY) ./scripts/build_linux.sh

@@ -20,23 +20,23 @@ import (
 	"github.com/Snail-one/MonitorKit/internal/version"
 )
 
-const usage = `SnailMon 中心端管理程序
+const usage = `MonitorKit 中心端管理程序
 
 用法：
-  snailmon                                      # 交互式管理界面
-  snailmon --version
-  sudo snailmon update                         # 更新管理程序自身
-  sudo snailmon uninstall                      # 卸载管理程序自身
-  snailmon install <prometheus|loki> [--version latest]
-  snailmon uninstall <prometheus|loki> [--purge]
-  snailmon status [prometheus|loki]
-  snailmon serve [--listen 127.0.0.1:8088] [--token TOKEN]
+  monitorkit                                    # 交互式管理界面
+  monitorkit --version
+  sudo monitorkit update                       # 更新管理程序自身
+  sudo monitorkit uninstall                    # 卸载管理程序自身
+  monitorkit install <prometheus|loki> [--version latest]
+  monitorkit uninstall <prometheus|loki> [--purge]
+  monitorkit status [prometheus|loki]
+  monitorkit serve [--listen 127.0.0.1:8088] [--token TOKEN]
 
 环境变量：
-  SNAILMON_ROOT    安装根目录，默认 /（主要用于测试或离线打包）
-  SNAILMON_LISTEN  API 监听地址
-  SNAILMON_TOKEN   API Bearer Token
-  GITHUB_TOKEN     可选，提升 GitHub API 请求限额
+  MONITORKIT_ROOT    安装根目录，默认 /（主要用于测试或离线打包）
+  MONITORKIT_LISTEN  API 监听地址
+  MONITORKIT_TOKEN   API Bearer Token
+  GITHUB_TOKEN       可选，提升 GitHub API 请求限额
 `
 
 func main() {
@@ -54,14 +54,14 @@ func run(args []string) error {
 			return nil
 		case "update":
 			if os.Geteuid() != 0 {
-				return fmt.Errorf("更新管理程序需要 root 权限，请使用 sudo snailmon update")
+				return fmt.Errorf("更新管理程序需要 root 权限，请使用 sudo monitorkit update")
 			}
 			fmt.Printf("安装脚本：%s\n", selfupdate.InstallScriptURL)
 			return selfupdate.Run(context.Background())
 		case "uninstall":
 			if len(args) == 1 {
 				if os.Geteuid() != 0 {
-					return fmt.Errorf("卸载管理程序需要 root 权限，请使用 sudo snailmon uninstall")
+					return fmt.Errorf("卸载管理程序需要 root 权限，请使用 sudo monitorkit uninstall")
 				}
 				fmt.Printf("卸载脚本：%s\n", selfupdate.InstallScriptURL)
 				return selfupdate.Run(context.Background(), "--uninstall")
@@ -69,7 +69,7 @@ func run(args []string) error {
 		}
 	}
 
-	root := envOr("SNAILMON_ROOT", "/")
+	root := envOr("MONITORKIT_ROOT", "/")
 	mgr, err := manager.New(root)
 	if err != nil {
 		return err
@@ -128,8 +128,8 @@ func run(args []string) error {
 		return nil
 	case "serve":
 		fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-		listen := fs.String("listen", envOr("SNAILMON_LISTEN", "127.0.0.1:8088"), "API 监听地址")
-		token := fs.String("token", os.Getenv("SNAILMON_TOKEN"), "Bearer Token")
+		listen := fs.String("listen", envOr("MONITORKIT_LISTEN", "127.0.0.1:8088"), "API 监听地址")
+		token := fs.String("token", os.Getenv("MONITORKIT_TOKEN"), "Bearer Token")
 		if err := fs.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -173,7 +173,7 @@ func serve(mgr *manager.Manager, listen, token string) error {
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	slog.Info("SnailMon API 已启动", "listen", listen)
+	slog.Info("MonitorKit API 已启动", "listen", listen)
 	err = server.ListenAndServe()
 	if err == http.ErrServerClosed {
 		return nil

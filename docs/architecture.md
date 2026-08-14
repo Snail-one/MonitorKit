@@ -1,11 +1,11 @@
-# SnailMon 架构
+# MonitorKit 架构
 
-SnailMon 分为中心端和探针端。中心服务器运行 Go 管理程序，负责 Prometheus 与 Loki 的生命周期；被监控服务器不运行管理程序，所有探针均由独立 Shell 脚本安装。
+MonitorKit 分为中心端和探针端。中心服务器运行 Go 管理程序，负责 Prometheus 与 Loki 的生命周期；被监控服务器不运行管理程序，所有探针均由独立 Shell 脚本安装。
 
 ## 分层与目录
 
 ```text
-cmd/snailmon/                 程序入口与 CLI 参数
+cmd/monitorkit/               程序入口与 CLI 参数
 internal/app/                 交互菜单与业务流程编排
 internal/manager/             组件生命周期、组件注册、下载和安装基础设施
 internal/server/              HTTP API 与鉴权
