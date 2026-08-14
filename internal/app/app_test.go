@@ -31,6 +31,41 @@ func TestMainMenuExitsAndShowsMonitoringDomain(t *testing.T) {
 	}
 }
 
+func TestComponentMenuShowsGrayStyleHints(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	absolute := filepath.Join(root, "usr/local/bin/prometheus")
+	if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(absolute, []byte("installed\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &output))
+	if err := application.componentMenu(context.Background(), componentViews["prometheus"]); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{
+		"配置管理", "-- 编辑/校验/mTLS",
+		"安装或更新", "-- 最新/指定版本",
+		"卸载程序", "-- 保留数据",
+		"彻底清理", "-- 删除数据",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("component menu does not contain %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "[保留数据]") || strings.Contains(got, "[删除数据]") {
+		t.Fatalf("component menu still uses badge brackets:\n%s", got)
+	}
+}
+
 func TestConfigurationAndInstallAreSeparateComponentActions(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	mgr, err := manager.New(t.TempDir())
@@ -78,13 +113,13 @@ func TestConfigurationMenuShowsPortAndMTLSStateBadges(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := disabled.String()
-	for _, want := range []string{"修改监听端口", "[48680]", "配置或更新 mTLS", "[已关闭]"} {
+	for _, want := range []string{"修改监听端口", "[48680]", "配置或更新 mTLS", "[已关闭]", "开启远程写入"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("disabled mTLS menu does not contain %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "[当前 48680]") || strings.Contains(got, "[证书校验]") {
-		t.Fatalf("disabled mTLS menu still uses old badges:\n%s", got)
+	if strings.Contains(got, "-- 48680") || strings.Contains(got, "-- 已关闭") {
+		t.Fatalf("dynamic values should use badges, not hint dashes:\n%s", got)
 	}
 
 	marker := filepath.Join(root, "etc/prometheus/tls/mtls.enabled")
@@ -167,8 +202,8 @@ func TestConfigurationMenuShowsDetectedEditorBadge(t *testing.T) {
 	if !strings.Contains(got, "编辑主配置") || !strings.Contains(got, "[nano]") {
 		t.Fatalf("menu does not show detected editor:\n%s", got)
 	}
-	if strings.Contains(got, "[vim/nano/vi]") {
-		t.Fatalf("menu still uses generic editor badge:\n%s", got)
+	if strings.Contains(got, "vim/nano/vi") {
+		t.Fatalf("menu still uses generic editor hint:\n%s", got)
 	}
 }
 

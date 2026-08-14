@@ -11,7 +11,7 @@ func TestPlainOutputHasStableHierarchy(t *testing.T) {
 	var output bytes.Buffer
 	terminal := New(strings.NewReader("1\n"), &output)
 	terminal.Home("监控中心", "只读", false)
-	terminal.Option("1", "指标服务", terminal.Badge("运行中", true))
+	terminal.Option("1", "指标服务", "运行中")
 	terminal.ExitOption("退出")
 	answer, err := terminal.Ask("选择")
 	if err != nil {
@@ -21,13 +21,69 @@ func TestPlainOutputHasStableHierarchy(t *testing.T) {
 		t.Fatalf("answer = %q", answer)
 	}
 	got := output.String()
-	for _, want := range []string{"╭─ MonitorKit", "监控中心", "指标服务", "[运行中]", "0/q", "❯ 选择："} {
+	for _, want := range []string{"╭─ MonitorKit", "监控中心", "指标服务", "-- 运行中", "0/q", "❯ 选择："} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output does not contain %q:\n%s", want, got)
 		}
 	}
 	if strings.Contains(got, "\033[") {
 		t.Fatalf("plain output contains ANSI: %q", got)
+	}
+}
+
+func TestOptionRendersHintAsGrayExplanation(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1")
+	t.Setenv("NO_COLOR", "")
+	var output bytes.Buffer
+	terminal := New(strings.NewReader(""), &output)
+	terminal.color = true
+	terminal.Option("3", "卸载程序", "保留数据")
+	got := output.String()
+	if !strings.Contains(got, "卸载程序") || !strings.Contains(got, "-- 保留数据") {
+		t.Fatalf("option output = %q", got)
+	}
+	if !strings.Contains(got, gray) {
+		t.Fatalf("option hint is not gray: %q", got)
+	}
+	if strings.Contains(got, "[保留数据]") {
+		t.Fatalf("option still uses badge brackets: %q", got)
+	}
+}
+
+func TestOptionValueRendersLiveDataAsBadge(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	var output bytes.Buffer
+	terminal := New(strings.NewReader(""), &output)
+	terminal.OptionValue("4", "修改监听端口", "48680", true)
+	terminal.OptionValue("5", "配置或更新 mTLS", "已关闭", false)
+	got := output.String()
+	for _, want := range []string{"[48680]", "[已关闭]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("value option does not contain %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "-- 48680") || strings.Contains(got, "-- 已关闭") {
+		t.Fatalf("value option used hint dashes:\n%s", got)
+	}
+}
+
+func TestOptionStateUsesOrangeWhenEnabledAndGrayWhenClosed(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1")
+	t.Setenv("NO_COLOR", "")
+	var closed bytes.Buffer
+	closedUI := New(strings.NewReader(""), &closed)
+	closedUI.color = true
+	closedUI.OptionState("5", "配置或更新 mTLS", false)
+	if got := closed.String(); !strings.Contains(got, "[已关闭]") || !strings.Contains(got, gray) || strings.Contains(got, orange) {
+		t.Fatalf("closed state = %q", got)
+	}
+
+	var open bytes.Buffer
+	openUI := New(strings.NewReader(""), &open)
+	openUI.color = true
+	openUI.OptionState("6", "开启远程写入", true)
+	if got := open.String(); !strings.Contains(got, "[已开启]") || !strings.Contains(got, orange) || strings.Contains(got, gray) {
+		t.Fatalf("open state = %q", got)
 	}
 }
 

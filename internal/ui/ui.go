@@ -82,13 +82,29 @@ func (u *UI) Title(parts ...string) {
 	fmt.Fprintln(u.out)
 }
 
-func (u *UI) Option(key, label, status string) {
+func (u *UI) Option(key, label, hint string) {
+	if hint = strings.TrimSpace(hint); hint == "" {
+		u.writeOption(key, label, "")
+		return
+	}
+	u.writeOption(key, label, u.paint(gray, "-- "+hint))
+}
+
+func (u *UI) OptionValue(key, label, value string, positive bool) {
+	u.writeOption(key, label, u.Badge(value, positive))
+}
+
+func (u *UI) OptionState(key, label string, enabled bool) {
+	u.writeOption(key, label, u.StateBadge(enabled))
+}
+
+func (u *UI) writeOption(key, label, suffix string) {
 	keyText := u.paint(bold+blue, fmt.Sprintf("%-4s", strings.TrimSpace(key)))
-	if strings.TrimSpace(status) == "" {
+	if strings.TrimSpace(suffix) == "" {
 		fmt.Fprintf(u.out, "  %s %s\n", keyText, label)
 		return
 	}
-	fmt.Fprintf(u.out, "  %s %s%s\n", keyText, pad(label, 22), status)
+	fmt.Fprintf(u.out, "  %s %s%s\n", keyText, pad(label, 22), suffix)
 }
 
 func (u *UI) ExitOption(label string) {
@@ -191,6 +207,13 @@ func (u *UI) Badge(text string, positive bool) string {
 		style = green
 	}
 	return u.paint(style, "["+strings.TrimSpace(text)+"]")
+}
+
+func (u *UI) StateBadge(enabled bool) string {
+	if enabled {
+		return u.paint(orange, "[已开启]")
+	}
+	return u.paint(gray, "[已关闭]")
 }
 
 func (u *UI) Card(tone Tone, title string, fields ...Field) {

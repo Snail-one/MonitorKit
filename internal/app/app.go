@@ -60,9 +60,9 @@ func (a *App) Run(ctx context.Context) error {
 			access = "管理模式"
 		}
 		a.ui.Home("服务器可观测性控制台 · "+version.Version, access, privileged)
-		a.ui.Option("1", componentViews["prometheus"].label, a.statusBadge(statuses["prometheus"]))
-		a.ui.Option("2", componentViews["loki"].label, a.statusBadge(statuses["loki"]))
-		a.ui.Option("3", "探针接入", a.ui.Badge("Shell", true))
+		a.ui.Option("1", componentViews["prometheus"].label, statusHint(statuses["prometheus"]))
+		a.ui.Option("2", componentViews["loki"].label, statusHint(statuses["loki"]))
+		a.ui.Option("3", "探针接入", "Shell")
 		a.ui.ExitOption("退出")
 		a.ui.Blank()
 
@@ -122,14 +122,14 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 		fields = append(fields, ui.Field{Label: "传输安全", Value: transport})
 		a.ui.Card(ui.Neutral, component.description, fields...)
 		a.ui.Blank()
-		configBadge := a.ui.Badge("请先安装", false)
+		configHint := "请先安装"
 		if status.Installed {
-			configBadge = a.ui.Badge("编辑/校验/mTLS", true)
+			configHint = "编辑/校验/mTLS"
 		}
-		a.ui.Option("1", "配置管理", configBadge)
-		a.ui.Option("2", "安装或更新", a.ui.Badge("最新/指定版本", true))
-		a.ui.Option("3", "卸载程序", a.ui.Badge("保留数据", true))
-		a.ui.Option("4", "彻底清理", a.ui.Badge("删除数据", false))
+		a.ui.Option("1", "配置管理", configHint)
+		a.ui.Option("2", "安装或更新", "最新/指定版本")
+		a.ui.Option("3", "卸载程序", "保留数据")
+		a.ui.Option("4", "彻底清理", "删除数据")
 		a.ui.ExitOption("返回总览")
 		a.ui.Blank()
 
@@ -173,7 +173,7 @@ func (a *App) installVersionMenu(ctx context.Context, component componentView) e
 			ui.Field{Label: "保留内容", Value: "现有配置、监听端口、mTLS 和独立开关状态"},
 		)
 		a.ui.Blank()
-		a.ui.Option("1", "安装最新稳定版", a.ui.Badge("推荐", true))
+		a.ui.Option("1", "安装最新稳定版", "推荐")
 		a.ui.Option("2", "安装指定版本", "")
 		a.ui.ExitOption("返回配置管理")
 		a.ui.Blank()
@@ -231,28 +231,27 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		}
 		a.ui.Card(ui.Neutral, component.label+"配置", configFields...)
 		a.ui.Blank()
-		a.ui.Option("1", "编辑主配置", editorBadge(a.ui))
+		editor, editorReady := editorValue()
+		a.ui.OptionValue("1", "编辑主配置", editor, editorReady)
 		a.ui.Option("2", "校验当前配置", "")
 		a.ui.Option("3", "重启并应用配置", "")
-		a.ui.Option("4", "修改监听端口", a.ui.Badge(portText(configuration.ListenPort), true))
-		a.ui.Option("5", "配置或更新 mTLS", a.ui.Badge(enabledText(configuration.MTLSEnabled), configuration.MTLSEnabled))
+		a.ui.OptionValue("4", "修改监听端口", portText(configuration.ListenPort), true)
+		a.ui.OptionState("5", "配置或更新 mTLS", configuration.MTLSEnabled)
 		if component.name == "prometheus" {
 			remoteWriteLabel := "开启远程写入"
-			remoteWriteBadge := a.ui.Badge("已关闭", false)
 			if configuration.RemoteWriteEnabled {
 				remoteWriteLabel = "关闭远程写入"
-				remoteWriteBadge = a.ui.Badge("已开启", true)
 			}
-			a.ui.Option("6", remoteWriteLabel, remoteWriteBadge)
+			a.ui.OptionState("6", remoteWriteLabel, configuration.RemoteWriteEnabled)
 		}
 		if configuration.MTLSEnabled && component.name == "prometheus" {
-			badge := "保留证书"
+			hint := "保留证书"
 			if configuration.RemoteWriteEnabled {
-				badge = "远程写入转为 HTTP"
+				hint = "远程写入转为 HTTP"
 			}
-			a.ui.Option("7", "关闭 mTLS", a.ui.Badge(badge, false))
+			a.ui.Option("7", "关闭 mTLS", hint)
 		} else if configuration.MTLSEnabled {
-			a.ui.Option("6", "关闭 mTLS", a.ui.Badge("保留证书", false))
+			a.ui.Option("6", "关闭 mTLS", "保留证书")
 		}
 		a.ui.ExitOption("返回" + component.label)
 		a.ui.Blank()
@@ -585,12 +584,12 @@ func selectTextEditor() (string, error) {
 	return "", fmt.Errorf("未找到 vim、nano 或 vi，请先安装任意一个编辑器")
 }
 
-func editorBadge(terminal *ui.UI) string {
+func editorValue() (string, bool) {
 	editor, err := selectTextEditor()
 	if err != nil {
-		return terminal.Badge("未安装", false)
+		return "未安装", false
 	}
-	return terminal.Badge(filepathBase(editor), true)
+	return filepathBase(editor), true
 }
 
 func openTextEditor(ctx context.Context, editor, path string) error {
@@ -691,8 +690,8 @@ func (a *App) probeMenu(ctx context.Context) error {
 			ui.Field{Label: "注意", Value: "两种方案不要在同一服务器重复安装"},
 		)
 		a.ui.Blank()
-		a.ui.Option("1", "添加探针", a.ui.Badge("接入配置", true))
-		a.ui.Option("2", "管理当前探针", a.ui.Badge("node_exporter", true))
+		a.ui.Option("1", "添加探针", "接入配置")
+		a.ui.Option("2", "管理当前探针", "node_exporter")
 		a.ui.ExitOption("返回总览")
 		a.ui.Blank()
 		choice, err := a.ui.Ask("请选择")
@@ -721,8 +720,8 @@ func (a *App) addProbeMenu(ctx context.Context) error {
 	for {
 		a.ui.Clear()
 		a.ui.Title("探针接入", "添加探针")
-		a.ui.Option("1", "配置 Grafana Alloy", a.ui.Badge("主动推送", true))
-		a.ui.Option("2", "添加 node_exporter 接入", a.ui.Badge("Prometheus 抓取", true))
+		a.ui.Option("1", "配置 Grafana Alloy", "主动推送")
+		a.ui.Option("2", "添加 node_exporter 接入", "Prometheus 抓取")
 		a.ui.ExitOption("返回探针接入")
 		a.ui.Blank()
 		choice, err := a.ui.Ask("请选择")
@@ -876,8 +875,8 @@ func (a *App) addNodeExporterProbe(ctx context.Context) {
 func (a *App) chooseNodeExporterTransport() (mtls, cancelled bool, err error) {
 	a.ui.Clear()
 	a.ui.Title("探针接入", "node_exporter", "连接方式")
-	a.ui.Option("1", "HTTPS + mTLS", a.ui.Badge("推荐", true))
-	a.ui.Option("2", "HTTP", a.ui.Badge("无认证", false))
+	a.ui.Option("1", "HTTPS + mTLS", "推荐")
+	a.ui.Option("2", "HTTP", "无认证")
 	a.ui.ExitOption("取消添加")
 	a.ui.Blank()
 	choice, err := a.ui.Ask("请选择")
@@ -920,11 +919,11 @@ func (a *App) manageProbesMenu(ctx context.Context) error {
 			return nil
 		}
 		for index, probe := range probes {
-			badge := a.ui.Badge("已停用", false)
+			hint := "已停用"
 			if probe.Enabled {
-				badge = a.ui.Badge("已启用", true)
+				hint = "已启用"
 			}
-			a.ui.Option(strconv.Itoa(index+1), probe.Name+" · "+probeDisplayTarget(probe), badge)
+			a.ui.Option(strconv.Itoa(index+1), probe.Name+" · "+probeDisplayTarget(probe), hint)
 		}
 		a.ui.ExitOption("返回探针接入")
 		a.ui.Blank()
@@ -984,9 +983,9 @@ func (a *App) manageProbeConfig(ctx context.Context, probe manager.Probe) error 
 		}
 		a.ui.Option("2", toggleLabel, "")
 		if probe.MTLS {
-			a.ui.Option("3", "更新 mTLS 客户端证书", a.ui.Badge("3 个 PEM 文件", true))
+			a.ui.Option("3", "更新 mTLS 客户端证书", "3 个 PEM 文件")
 		}
-		a.ui.Option("4", "删除接入配置", a.ui.Badge("不卸载远程探针", false))
+		a.ui.Option("4", "删除接入配置", "不卸载远程探针")
 		a.ui.ExitOption("返回探针列表")
 		a.ui.Blank()
 		choice, err := a.ui.Ask("请选择")
@@ -1152,17 +1151,17 @@ func (a *App) statuses(ctx context.Context) (map[string]manager.Status, error) {
 	return statuses, nil
 }
 
-func (a *App) statusBadge(status manager.Status) string {
+func statusHint(status manager.Status) string {
 	if !status.Installed {
-		return a.ui.Badge("未安装", false)
+		return "未安装"
 	}
 	if status.ServiceState == "active" {
-		return a.ui.Badge("运行中", true)
+		return "运行中"
 	}
 	if status.ServiceState == "staged" {
-		return a.ui.Badge("待启用", false)
+		return "待启用"
 	}
-	return a.ui.Badge("已停止", false)
+	return "已停止"
 }
 
 func (a *App) operationError(title string, err error) {
