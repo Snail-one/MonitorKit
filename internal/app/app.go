@@ -232,10 +232,10 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		a.ui.Card(ui.Neutral, component.label+"配置", configFields...)
 		a.ui.Blank()
 		editor, editorReady := editorValue()
-		a.ui.OptionValue("1", "编辑主配置", editor, editorReady)
+		a.ui.OptionLive("1", "编辑主配置", editor, editorReady)
 		a.ui.Option("2", "校验当前配置", "")
 		a.ui.Option("3", "重启并应用配置", "")
-		a.ui.OptionValue("4", "修改监听端口", portText(configuration.ListenPort), true)
+		a.ui.OptionLive("4", "修改监听端口", portText(configuration.ListenPort), configuration.ListenPort > 0)
 		a.ui.OptionState("5", "配置或更新 mTLS", configuration.MTLSEnabled)
 		if component.name == "prometheus" {
 			remoteWriteLabel := "开启远程写入"

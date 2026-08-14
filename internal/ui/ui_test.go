@@ -50,23 +50,6 @@ func TestOptionRendersHintAsGrayExplanation(t *testing.T) {
 	}
 }
 
-func TestOptionValueRendersLiveDataAsBadge(t *testing.T) {
-	t.Setenv("NO_COLOR", "1")
-	var output bytes.Buffer
-	terminal := New(strings.NewReader(""), &output)
-	terminal.OptionValue("4", "修改监听端口", "48680", true)
-	terminal.OptionValue("5", "配置或更新 mTLS", "已关闭", false)
-	got := output.String()
-	for _, want := range []string{"[48680]", "[已关闭]"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("value option does not contain %q:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "-- 48680") || strings.Contains(got, "-- 已关闭") {
-		t.Fatalf("value option used hint dashes:\n%s", got)
-	}
-}
-
 func TestOptionLiveRendersActiveStatusOrangeAndInactiveGray(t *testing.T) {
 	t.Setenv("CLICOLOR_FORCE", "1")
 	t.Setenv("NO_COLOR", "")
@@ -84,6 +67,22 @@ func TestOptionLiveRendersActiveStatusOrangeAndInactiveGray(t *testing.T) {
 	missingUI.OptionLive("2", "Loki", "未安装", false)
 	if got := missing.String(); !strings.Contains(got, "[未安装]") || !strings.Contains(got, gray) || strings.Contains(got, orange) {
 		t.Fatalf("missing status = %q", got)
+	}
+
+	var editor bytes.Buffer
+	editorUI := New(strings.NewReader(""), &editor)
+	editorUI.color = true
+	editorUI.OptionLive("1", "编辑主配置", "vim", true)
+	if got := editor.String(); !strings.Contains(got, "[vim]") || !strings.Contains(got, orange) || strings.Contains(got, gray) {
+		t.Fatalf("editor value = %q", got)
+	}
+
+	var port bytes.Buffer
+	portUI := New(strings.NewReader(""), &port)
+	portUI.color = true
+	portUI.OptionLive("4", "修改监听端口", "48680", true)
+	if got := port.String(); !strings.Contains(got, "[48680]") || !strings.Contains(got, orange) || strings.Contains(got, gray) {
+		t.Fatalf("port value = %q", got)
 	}
 }
 

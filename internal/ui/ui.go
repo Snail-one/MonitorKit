@@ -90,10 +90,6 @@ func (u *UI) Option(key, label, hint string) {
 	u.writeOption(key, label, u.paint(gray, "-- "+hint))
 }
 
-func (u *UI) OptionValue(key, label, value string, positive bool) {
-	u.writeOption(key, label, u.Badge(value, positive))
-}
-
 func (u *UI) OptionState(key, label string, enabled bool) {
 	u.writeOption(key, label, u.StateBadge(enabled))
 }
