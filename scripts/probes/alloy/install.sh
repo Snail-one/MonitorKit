@@ -8,18 +8,22 @@ readonly CONFIG_DIR="/etc/alloy"
 readonly CONFIG_FILE="${CONFIG_DIR}/config.alloy"
 readonly DATA_DIR="/var/lib/alloy"
 readonly TLS_DIR="${CONFIG_DIR}/tls"
+readonly MONITOR_NAME_FILE="${CONFIG_DIR}/monitor.name"
 
 PROMETHEUS_URL_PRESET=0
 LOKI_URL_PRESET=0
 PROMETHEUS_MTLS_MODE_PRESET=0
 LOKI_MTLS_MODE_PRESET=0
+MONITOR_NAME_PRESET=0
 [[ -n "${PROMETHEUS_URL+x}" ]] && PROMETHEUS_URL_PRESET=1
 [[ -n "${LOKI_URL+x}" ]] && LOKI_URL_PRESET=1
 [[ -n "${PROMETHEUS_MTLS_ENABLED+x}" ]] && PROMETHEUS_MTLS_MODE_PRESET=1
 [[ -n "${LOKI_MTLS_ENABLED+x}" ]] && LOKI_MTLS_MODE_PRESET=1
+[[ -n "${MONITOR_NAME+x}" ]] && MONITOR_NAME_PRESET=1
 
 PROMETHEUS_URL="${PROMETHEUS_URL:-}"
 LOKI_URL="${LOKI_URL:-}"
+MONITOR_NAME="${MONITOR_NAME:-}"
 PROMETHEUS_MTLS_CA_FILE="${PROMETHEUS_MTLS_CA_FILE:-}"
 PROMETHEUS_MTLS_CERT_FILE="${PROMETHEUS_MTLS_CERT_FILE:-}"
 PROMETHEUS_MTLS_KEY_FILE="${PROMETHEUS_MTLS_KEY_FILE:-}"
@@ -87,6 +91,7 @@ print_completion_card() {
   printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Grafana Alloy" "${RESET}"
   printf '%s│ %s%s%s%s\n' "${ORANGE}" "${BOLD}${GREEN}" "${title}" "${RESET}" ""
   printf '%s│ %s服务：%salloy.service（运行中、开机自启）\n' "${ORANGE}" "${BLUE}" "${RESET}"
+  printf '%s│ %s节点名称：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${MONITOR_NAME}"
   printf '%s│ %s指标中心：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${PROMETHEUS_URL}"
   printf '%s│ %s日志中心：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${LOKI_URL}"
   printf '%s│ %sPrometheus mTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "$([[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] && printf '已启用' || printf '未启用（HTTP，未加密）')"
@@ -125,6 +130,7 @@ Grafana Alloy 指标与日志统一探针维护脚本。
 选择不启用时会显示明文传输风险并要求再次确认，然后使用普通 HTTP。
 
 无人值守配置变量：
+  MONITOR_NAME=debian-web-01
   PROMETHEUS_URL=https://monitor.example.com:24567
   PROMETHEUS_MTLS_ENABLED=1
   PROMETHEUS_MTLS_CA_FILE=/root/prometheus-ca.crt
@@ -336,6 +342,50 @@ prompt_server_name() {
   done
 }
 
+default_monitor_name() {
+  local value=""
+  if [[ -r /etc/hostname ]]; then
+    IFS= read -r value </etc/hostname || true
+  fi
+  value="$(trim_value "${value}")"
+  printf '%s' "${value:-unknown-node}"
+}
+
+valid_monitor_name() {
+  local value="$1"
+  [[ -n "${value}" && "${#value}" -le 64 ]] || return 1
+  [[ "${value}" != *'"'* && "${value}" != *'\'* && "${value}" != *'$'* ]] || return 1
+  [[ "${value}" != *$'\t'* && "${value}" != *$'\r'* && "${value}" != *$'\n'* ]]
+}
+
+prompt_monitor_name() {
+  local default_value="${MONITOR_NAME:-$(default_monitor_name)}"
+  local entered=""
+  local prompt_text=""
+
+  if [[ "${MONITOR_NAME_PRESET}" == "1" ]]; then
+    MONITOR_NAME="$(trim_value "${MONITOR_NAME}")"
+    valid_monitor_name "${MONITOR_NAME}" || die "MONITOR_NAME 必须为 1-64 个字符，且不能包含引号、反斜杠、美元符号或控制字符"
+    return 0
+  fi
+  if ! detect_interactive_device; then
+    MONITOR_NAME="${default_value}"
+    valid_monitor_name "${MONITOR_NAME}" || die "监控节点名称必须为 1-64 个字符，且不能包含引号、反斜杠、美元符号或控制字符"
+    return 0
+  fi
+  while true; do
+    printf -v prompt_text '❯ 监控节点名称（用于 Grafana 区分主机）[%s]： ' "${default_value}"
+    IFS= read -e -r -i "${default_value}" -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取监控节点名称失败"
+    entered="$(trim_value "${entered:-${default_value}}")"
+    if valid_monitor_name "${entered}"; then
+      MONITOR_NAME="${entered}"
+      result "Grafana 指标 instance 和日志 host 将显示为：${MONITOR_NAME}"
+      return 0
+    fi
+    warn "名称必须为 1-64 个字符，且不能包含引号、反斜杠、美元符号或控制字符"
+  done
+}
+
 installed_version() {
   if command -v alloy >/dev/null 2>&1; then
     alloy --version 2>/dev/null | head -n 1 || true
@@ -351,6 +401,10 @@ is_installed() {
 }
 
 load_existing_settings() {
+  if [[ -z "${MONITOR_NAME}" && -r "${MONITOR_NAME_FILE}" ]]; then
+    IFS= read -r MONITOR_NAME <"${MONITOR_NAME_FILE}" || true
+    MONITOR_NAME="$(trim_value "${MONITOR_NAME}")"
+  fi
   [[ -r "${CONFIG_FILE}" ]] || return 0
   if [[ -z "${PROMETHEUS_URL}" ]]; then
     PROMETHEUS_URL="$(awk -F'"' '/url[[:space:]]*=[[:space:]]*".*\/api\/v1\/write"/ { sub(/\/api\/v1\/write$/, "", $2); print $2; exit }' "${CONFIG_FILE}")"
@@ -768,6 +822,7 @@ collect_connection_settings() {
 
   printf '\n'
   step "配置数据接收中心"
+  prompt_monitor_name
   info "Prometheus 接收端必须已单独开启远程写入接收；mTLS 为推荐项但不再强制"
   if [[ "${PROMETHEUS_MTLS_MODE_PRESET}" == "0" && -n "${prometheus_env_configured}" ]]; then
     PROMETHEUS_MTLS_ENABLED=1
@@ -825,8 +880,9 @@ prepare_mtls_configuration() {
 }
 
 write_config() {
-  local temp_file prometheus_tls_config="" loki_tls_config=""
+  local temp_file monitor_name_temp prometheus_tls_config="" loki_tls_config=""
   temp_file="${WORK_DIR}/config.alloy.new"
+  monitor_name_temp="${WORK_DIR}/monitor.name.new"
   if [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]]; then
     prometheus_tls_config="$(cat <<EOF
     tls_config {
@@ -860,8 +916,22 @@ prometheus.exporter.unix "host" {
 
 prometheus.scrape "host" {
   targets         = prometheus.exporter.unix.host.targets
-  forward_to      = [prometheus.remote_write.center.receiver]
+  forward_to      = [prometheus.relabel.host_identity.receiver]
   scrape_interval = "15s"
+}
+
+prometheus.relabel "host_identity" {
+  forward_to = [prometheus.remote_write.center.receiver]
+
+  rule {
+    target_label = "instance"
+    replacement  = "${MONITOR_NAME}"
+  }
+
+  rule {
+    target_label = "host"
+    replacement  = "${MONITOR_NAME}"
+  }
 }
 
 prometheus.remote_write "center" {
@@ -884,7 +954,7 @@ loki.write "center" {
 ${loki_tls_config}
   }
   external_labels = {
-    host = constants.hostname,
+    host = "${MONITOR_NAME}",
   }
 }
 EOF
@@ -894,8 +964,10 @@ EOF
   alloy validate "${temp_file}" || die "Alloy 配置校验失败，现有配置不会被替换"
   install -d -o root -g alloy -m 0750 "${CONFIG_DIR}" "${DATA_DIR}"
   install -o root -g alloy -m 0640 "${temp_file}" "${CONFIG_FILE}"
+  printf '%s\n' "${MONITOR_NAME}" >"${monitor_name_temp}"
+  install -o root -g alloy -m 0640 "${monitor_name_temp}" "${MONITOR_NAME_FILE}"
   chown alloy:alloy "${DATA_DIR}"
-  result "配置校验通过并写入 ${CONFIG_FILE}"
+  result "配置校验通过并写入 ${CONFIG_FILE}；节点名称：${MONITOR_NAME}"
 }
 
 start_service() {
@@ -981,6 +1053,7 @@ show_status() {
   printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Grafana Alloy" "${RESET}"
   printf '%s│ %s安装版本：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${version:-未安装}"
   printf '%s│ %s服务状态：%s%s；开机自启：%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${active:-未知}" "${enabled:-未知}"
+  printf '%s│ %s节点名称：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${MONITOR_NAME:-未配置}"
   printf '%s│ %sPrometheus：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${PROMETHEUS_URL:-未配置}"
   printf '%s│ %sPrometheus mTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${prometheus_status}"
   printf '%s│ %sLoki：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${LOKI_URL:-未配置}"

@@ -57,6 +57,7 @@
 
 /etc/alloy/
 ├── config.alloy
+├── monitor.name                         # Grafana 中显示的自定义节点名称
 └── tls/
     ├── prometheus-ca.crt                # Prometheus 选择 mTLS 时
     ├── prometheus-client.crt            # Prometheus 选择 mTLS 时
@@ -254,6 +255,7 @@ Alloy 通过发行版包管理器安装。脚本明确写入或修改：
 
 ```text
 /etc/alloy/config.alloy
+/etc/alloy/monitor.name        # 指标 instance/host 与日志 host 的节点名称
 /etc/alloy/tls/             # 对任一中心启用 mTLS 时
 ├── prometheus-ca.crt
 ├── prometheus-client.crt

@@ -8,7 +8,7 @@ NODE_EXPORTER_INSTALLER="${ROOT_DIR}/scripts/probes/node_exporter/install.sh"
 
 bash -n "${INSTALLER}" "${NODE_EXPORTER_INSTALLER}"
 
-unset PROMETHEUS_MTLS_ENABLED LOKI_MTLS_ENABLED
+unset PROMETHEUS_MTLS_ENABLED LOKI_MTLS_ENABLED MONITOR_NAME
 ALLOY_INSTALLER_SOURCE_ONLY=1 source "${INSTALLER}"
 if [[ "${PROMETHEUS_MTLS_ENABLED}" != "1" || "${LOKI_MTLS_ENABLED}" != "1" ]]; then
   printf 'Alloy 首次配置没有默认启用 Prometheus/Loki mTLS\n' >&2
@@ -27,6 +27,12 @@ for test_case in \
     exit 1
   fi
 done
+
+valid_monitor_name '上海-Web-01'
+if valid_monitor_name 'bad$name'; then
+  printf 'Alloy 节点名称校验错误地接受了美元符号\n' >&2
+  exit 1
+fi
 
 actual="$(normalize_backend_url_input '192.168.213.139:3100')"
 if [[ "${actual}" != "https://192.168.213.139:3100" ]]; then
@@ -66,6 +72,7 @@ for expected in \
   'install.sh uninstall' \
   'install.sh purge' \
   '/etc/alloy/tls/' \
+  'MONITOR_NAME=debian-web-01' \
   'Prometheus 和 Loki 均默认推荐 mTLS' \
   '普通卸载保留 /etc/alloy 和 /var/lib/alloy'; do
   grep -Fq -- "${expected}" <<<"${HELP_OUTPUT}" || {
@@ -84,6 +91,10 @@ for expected in \
   '确认接受风险并让 ${label} 使用 HTTP' \
   'read -e -r -i "${value}" -p "${prompt_text}" entered' \
   'read -e -r -p "${prompt_text}" entered' \
+  'prometheus.relabel "host_identity"' \
+  'target_label = "instance"' \
+  'host = "${MONITOR_NAME}"' \
+  'MONITOR_NAME_FILE' \
   'prometheus_tls_config=""' \
   'alloy validate "${temp_file}"' \
   'rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"' \
