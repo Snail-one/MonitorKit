@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Snail-one/Snailbash/internal/manager"
-	"github.com/Snail-one/Snailbash/internal/ui"
+	"github.com/Snail-one/MonitorKit/internal/manager"
+	"github.com/Snail-one/MonitorKit/internal/ui"
 )
 
 type App struct {
@@ -250,12 +250,12 @@ func (a *App) probeMenu() error {
 			return nil
 		case "1":
 			a.ui.Card(ui.Neutral, "node_exporter 安装命令",
-				ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/scripts/probes/node_exporter/install.sh | sudo bash"},
+				ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/node_exporter/install.sh | sudo bash"},
 			)
 			a.ui.Pause()
 		case "2":
 			a.ui.Card(ui.Neutral, "Grafana Alloy 统一探针安装命令",
-				ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/scripts/probes/alloy/install.sh | sudo PROMETHEUS_URL=http://中心服务器:9090 LOKI_URL=http://中心服务器:3100 bash"},
+				ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | sudo PROMETHEUS_URL=http://中心服务器:9090 LOKI_URL=http://中心服务器:3100 bash"},
 				ui.Field{Label: "采集内容", Value: "CPU、内存、磁盘、网络指标与 systemd journal 日志"},
 			)
 			a.ui.Pause()

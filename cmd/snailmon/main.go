@@ -12,10 +12,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Snail-one/Snailbash/internal/app"
-	"github.com/Snail-one/Snailbash/internal/manager"
-	api "github.com/Snail-one/Snailbash/internal/server"
-	"github.com/Snail-one/Snailbash/internal/ui"
+	"github.com/Snail-one/MonitorKit/internal/app"
+	"github.com/Snail-one/MonitorKit/internal/manager"
+	api "github.com/Snail-one/MonitorKit/internal/server"
+	"github.com/Snail-one/MonitorKit/internal/ui"
 )
 
 const usage = `SnailMon 中心端管理程序

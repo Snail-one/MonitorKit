@@ -11,7 +11,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Snail-one/Snailbash/internal/manager"
+	"github.com/Snail-one/MonitorKit/internal/manager"
 )
 
 // Manager describes the application layer used by the transport.

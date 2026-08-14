@@ -5,7 +5,7 @@ SnailMon 是一套中心化服务器监控配置工具：中心服务器运行 G
 ## 项目结构
 
 ```text
-Snailbash/
+MonitorKit/
 ├── cmd/snailmon/                  # Go 中心端入口
 ├── internal/
 │   ├── app/                       # 交互菜单与业务流程编排
@@ -120,13 +120,13 @@ curl -X POST http://127.0.0.1:8088/api/v1/components/prometheus/install \
 node_exporter 指标探针：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/scripts/probes/node_exporter/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/node_exporter/install.sh | sudo bash
 ```
 
 Grafana Alloy 指标与日志统一探针：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/scripts/probes/alloy/install.sh | \
+curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | \
   sudo PROMETHEUS_URL=http://10.0.0.10:9090 LOKI_URL=http://10.0.0.10:3100 bash
 ```
 

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Snail-one/Snailbash/internal/manager"
-	"github.com/Snail-one/Snailbash/internal/ui"
+	"github.com/Snail-one/MonitorKit/internal/manager"
+	"github.com/Snail-one/MonitorKit/internal/ui"
 )
 
 func TestMainMenuExitsAndShowsMonitoringDomain(t *testing.T) {

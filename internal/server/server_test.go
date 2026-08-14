@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Snail-one/Snailbash/internal/manager"
+	"github.com/Snail-one/MonitorKit/internal/manager"
 )
 
 type fakeManager struct{}
