@@ -113,7 +113,10 @@ for expected in \
   'warning_card()' \
   'trap on_signal INT TERM' \
   'prometheus.relabel "host_identity"' \
+  'target_label = "job"' \
+  'replacement  = "alloy-one"' \
   'target_label = "instance"' \
+  'target_label = "host"' \
   'host = "${MONITOR_NAME}"' \
   'MONITOR_NAME_FILE' \
   'prometheus_tls_config=""' \
@@ -125,6 +128,11 @@ for expected in \
     exit 1
   }
 done
+
+if grep -Fq 'target_label = "nodename"' "${INSTALLER}"; then
+  printf 'Alloy 不应覆盖系统指标原生的 nodename 标签\n' >&2
+  exit 1
+fi
 
 
 for expected in \

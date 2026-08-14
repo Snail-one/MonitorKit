@@ -1001,6 +1001,11 @@ prometheus.relabel "host_identity" {
   forward_to = [prometheus.remote_write.center.receiver]
 
   rule {
+    target_label = "job"
+    replacement  = "alloy-one"
+  }
+
+  rule {
     target_label = "instance"
     replacement  = "${MONITOR_NAME}"
   }
