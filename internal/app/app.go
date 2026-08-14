@@ -29,14 +29,14 @@ type componentView struct {
 var componentViews = map[string]componentView{
 	"prometheus": {
 		name:        "prometheus",
-		label:       "指标中心",
+		label:       "Prometheus",
 		description: "汇聚并保存服务器性能指标",
 		address:     "http://服务器地址:9090",
 		configPath:  "/etc/prometheus/prometheus.yml",
 	},
 	"loki": {
 		name:        "loki",
-		label:       "日志中心",
+		label:       "Loki",
 		description: "接收并保存探针发送的系统日志",
 		address:     "http://服务器地址:3100",
 		configPath:  "/etc/loki/loki.yml",
@@ -60,12 +60,10 @@ func (a *App) Run(ctx context.Context) error {
 			access = "管理模式"
 		}
 		a.ui.Home("服务器可观测性控制台 · "+version.Version, access, privileged)
-		ready := readyCount(statuses)
-		a.ui.Option("1", "部署监控栈", a.ui.Badge(fmt.Sprintf("就绪 %d/2", ready), ready == 2))
-		a.ui.Option("2", "指标中心", a.statusBadge(statuses["prometheus"]))
-		a.ui.Option("3", "日志中心", a.statusBadge(statuses["loki"]))
-		a.ui.Option("4", "探针接入", a.ui.Badge("Shell", true))
-		a.ui.Option("5", "管理接口", a.ui.Badge("HTTP API", true))
+		a.ui.Option("1", componentViews["prometheus"].label, a.statusBadge(statuses["prometheus"]))
+		a.ui.Option("2", componentViews["loki"].label, a.statusBadge(statuses["loki"]))
+		a.ui.Option("3", "探针接入", a.ui.Badge("Shell", true))
+		a.ui.Option("4", "管理接口", a.ui.Badge("HTTP API", true))
 		a.ui.ExitOption("退出")
 		a.ui.Blank()
 
@@ -77,20 +75,18 @@ func (a *App) Run(ctx context.Context) error {
 		case "0", "q", "exit":
 			return nil
 		case "1":
-			a.deployStack(ctx)
-		case "2":
 			if err := a.componentMenu(ctx, componentViews["prometheus"]); err != nil {
 				return err
 			}
-		case "3":
+		case "2":
 			if err := a.componentMenu(ctx, componentViews["loki"]); err != nil {
 				return err
 			}
-		case "4":
+		case "3":
 			if err := a.probeMenu(); err != nil {
 				return err
 			}
-		case "5":
+		case "4":
 			a.apiInfo()
 		default:
 			a.ui.InvalidChoice()
@@ -419,28 +415,6 @@ func (a *App) uninstall(ctx context.Context, component componentView, purge bool
 	a.ui.Pause()
 }
 
-func (a *App) deployStack(ctx context.Context) {
-	confirmed, err := a.ui.Confirm("确认部署 Prometheus 和 Loki")
-	if err != nil || !confirmed {
-		return
-	}
-	installed := make([]string, 0, 2)
-	for _, name := range manager.ComponentNames() {
-		component := componentViews[name]
-		_, err := a.installWithProgress(ctx, component, "latest")
-		if err != nil {
-			a.operationError("监控栈部署未完成", fmt.Errorf("%s：%w", component.label, err))
-			return
-		}
-		installed = append(installed, component.label)
-	}
-	a.ui.Card(ui.Success, "监控中心部署完成",
-		ui.Field{Label: "已启用", Value: strings.Join(installed, "、")},
-		ui.Field{Label: "下一步", Value: "在目标服务器安装指标与日志探针"},
-	)
-	a.ui.Pause()
-}
-
 func (a *App) installWithProgress(ctx context.Context, component componentView, wantedVersion string) (manager.Status, error) {
 	target := wantedVersion
 	if wantedVersion == "latest" {
@@ -548,16 +522,6 @@ func (a *App) statusBadge(status manager.Status) string {
 func (a *App) operationError(title string, err error) {
 	a.ui.Card(ui.Danger, title, ui.Field{Label: "原因", Value: err.Error()}, ui.Field{Label: "状态", Value: "未继续执行后续操作"})
 	a.ui.Pause()
-}
-
-func readyCount(statuses map[string]manager.Status) int {
-	ready := 0
-	for _, status := range statuses {
-		if status.Installed && (status.ServiceState == "active" || status.ServiceState == "staged") {
-			ready++
-		}
-	}
-	return ready
 }
 
 func installedText(status manager.Status) string {

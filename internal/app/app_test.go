@@ -24,20 +24,10 @@ func TestMainMenuExitsAndShowsMonitoringDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"MonitorKit", "指标中心", "日志中心", "部署监控栈", "探针接入", "管理接口"} {
+	for _, want := range []string{"MonitorKit", "Prometheus", "Loki", "探针接入", "管理接口"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("menu does not contain %q:\n%s", want, got)
 		}
-	}
-}
-
-func TestReadyCount(t *testing.T) {
-	statuses := map[string]manager.Status{
-		"prometheus": {Installed: true, ServiceState: "active"},
-		"loki":       {Installed: true, ServiceState: "inactive"},
-	}
-	if got := readyCount(statuses); got != 1 {
-		t.Fatalf("readyCount = %d, want 1", got)
 	}
 }
 

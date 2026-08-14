@@ -48,7 +48,7 @@ VERSION=v1.0.0 GOARCH=amd64 ./scripts/build_linux.sh
 sudo monitorkit
 ```
 
-交互界面提供中心组件状态总览、Prometheus/Loki 独立管理、监控栈一键部署、探针接入命令和 HTTP API 信息。终端支持颜色时会显示状态徽标和动态操作反馈；设置 `NO_COLOR=1` 可关闭颜色。
+交互界面提供中心组件状态总览、Prometheus/Loki 独立管理、探针接入命令和 HTTP API 信息。终端支持颜色时会显示状态徽标和动态操作反馈；设置 `NO_COLOR=1` 可关闭颜色。
 
 ## 在线安装、更新与卸载
 
