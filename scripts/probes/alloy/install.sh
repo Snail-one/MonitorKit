@@ -255,6 +255,7 @@ prompt_backend_url() {
   local entered=""
   local candidate=""
   local default_scheme="${required_scheme:-https}"
+  local prompt_text=""
 
   if [[ -n "${value}" && "${force_prompt}" != "1" ]]; then
     value="$(normalize_backend_url_input "${value}" "${default_scheme}")"
@@ -268,15 +269,15 @@ prompt_backend_url() {
   detect_interactive_device || die "无人值守配置缺少 ${variable_name}"
   while true; do
     if [[ -n "${value}" ]]; then
-      printf '❯ %s 根地址 [%s]： ' "${label}" "${value}" >&2
+      printf -v prompt_text '❯ %s 根地址 [%s]： ' "${label}" "${value}"
     elif [[ "${required_scheme}" == "https" ]]; then
-      printf '❯ %s 地址（可直接输入 IP:端口，例如 10.0.0.10:24567，自动使用 HTTPS）： ' "${label}" >&2
+      printf -v prompt_text '❯ %s 地址（可直接输入 IP:端口，例如 10.0.0.10:24567，自动使用 HTTPS）： ' "${label}"
     elif [[ "${required_scheme}" == "http" ]]; then
-      printf '❯ %s 地址（已确认不启用 mTLS；输入 IP:端口将使用 HTTP）： ' "${label}" >&2
+      printf -v prompt_text '❯ %s 地址（已确认不启用 mTLS；输入 IP:端口将使用 HTTP）： ' "${label}"
     else
-      printf '❯ %s 根地址（请输入 http:// 或 https://）： ' "${label}" >&2
+      printf -v prompt_text '❯ %s 根地址（请输入 http:// 或 https://）： ' "${label}"
     fi
-    IFS= read -e -r entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    IFS= read -e -r -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
     entered="$(trim_value "${entered}")"
     candidate="${entered:-${value}}"
     candidate="$(normalize_backend_url_input "${candidate}" "${default_scheme}")"
@@ -308,6 +309,7 @@ prompt_server_name() {
   local value="${!variable_name:-}"
   local entered=""
   local default_value
+  local prompt_text=""
   default_value="${value:-$(host_from_url "${url}")}"
 
   if [[ -n "${value}" && "${force_prompt}" != "1" ]]; then
@@ -319,8 +321,8 @@ prompt_server_name() {
   fi
   set_interactive_device
   while true; do
-    printf '❯ %s TLS server_name [%s]： ' "${label}" "${default_value}" >&2
-    IFS= read -e -r entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    printf -v prompt_text '❯ %s TLS server_name [%s]： ' "${label}" "${default_value}"
+    IFS= read -e -r -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
     entered="$(trim_value "${entered:-${default_value}}")"
     if [[ "${entered}" =~ ^[A-Za-z0-9._-]+$ ]]; then
       printf -v "${variable_name}" '%s' "${entered}"
