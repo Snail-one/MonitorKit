@@ -81,6 +81,7 @@ for expected in \
   'PACKAGE_WAS_INSTALLED' \
   'choose_backend_mtls_mode()' \
   '确认接受风险并让 ${label} 使用 HTTP' \
+  'read -e -r -i "${value}" -p "${prompt_text}" entered' \
   'read -e -r -p "${prompt_text}" entered' \
   'prometheus_tls_config=""' \
   'alloy validate "${temp_file}"' \

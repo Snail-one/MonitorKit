@@ -277,7 +277,11 @@ prompt_backend_url() {
     else
       printf -v prompt_text '❯ %s 根地址（请输入 http:// 或 https://）： ' "${label}"
     fi
-    IFS= read -e -r -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    if [[ -n "${value}" ]]; then
+      IFS= read -e -r -i "${value}" -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    else
+      IFS= read -e -r -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    fi
     entered="$(trim_value "${entered}")"
     candidate="${entered:-${value}}"
     candidate="$(normalize_backend_url_input "${candidate}" "${default_scheme}")"
@@ -322,7 +326,7 @@ prompt_server_name() {
   set_interactive_device
   while true; do
     printf -v prompt_text '❯ %s TLS server_name [%s]： ' "${label}" "${default_value}"
-    IFS= read -e -r -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    IFS= read -e -r -i "${default_value}" -p "${prompt_text}" entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
     entered="$(trim_value "${entered:-${default_value}}")"
     if [[ "${entered}" =~ ^[A-Za-z0-9._-]+$ ]]; then
       printf -v "${variable_name}" '%s' "${entered}"
