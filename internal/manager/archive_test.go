@@ -118,12 +118,15 @@ func TestValidVersion(t *testing.T) {
 	}
 }
 
-func TestPrometheusRemoteWriteRequiresMTLS(t *testing.T) {
+func TestPrometheusRemoteWriteIsIndependentFromMTLS(t *testing.T) {
 	if strings.Contains(prometheusUnit(false, false, 19090), "--web.enable-remote-write-receiver") {
 		t.Fatal("plain HTTP Prometheus unit enables the remote-write receiver")
 	}
 	if strings.Contains(prometheusUnit(true, false, 19090), "--web.enable-remote-write-receiver") {
 		t.Fatal("mTLS alone unexpectedly enables the remote-write receiver")
+	}
+	if !strings.Contains(prometheusUnit(false, true, 19090), "--web.enable-remote-write-receiver") {
+		t.Fatal("plain HTTP Prometheus unit does not enable the managed remote-write receiver")
 	}
 	if !strings.Contains(prometheusUnit(true, true, 19090), "--web.enable-remote-write-receiver") {
 		t.Fatal("mTLS Prometheus unit does not enable the remote-write receiver")

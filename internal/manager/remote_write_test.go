@@ -26,25 +26,27 @@ func stagePrometheusService(t *testing.T, mgr *Manager, mtls, remoteWrite bool) 
 	return unitPath
 }
 
-func TestRemoteWriteCannotBeEnabledWithoutMTLS(t *testing.T) {
+func TestRemoteWriteCanBeEnabledWithoutMTLS(t *testing.T) {
 	mgr, err := New(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	unitPath := stagePrometheusService(t, mgr, false, false)
-	err = mgr.SetRemoteWrite(context.Background(), "prometheus", true)
-	if err == nil || !strings.Contains(err.Error(), "必须先配置并启用 mTLS") {
-		t.Fatalf("SetRemoteWrite error = %v", err)
+	if err := mgr.SetRemoteWrite(context.Background(), "prometheus", true); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(mgr.remoteWriteMarkerPath()); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("remote-write marker exists: %v", err)
+	if _, err := os.Stat(mgr.remoteWriteMarkerPath()); err != nil {
+		t.Fatalf("remote-write marker missing: %v", err)
 	}
 	unit, err := os.ReadFile(unitPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(unit), "--web.enable-remote-write-receiver") {
-		t.Fatal("remote write was enabled without mTLS")
+	if !strings.Contains(string(unit), "--web.enable-remote-write-receiver") {
+		t.Fatal("remote write was not enabled over HTTP")
+	}
+	if strings.Contains(string(unit), "--web.config.file") {
+		t.Fatal("HTTP remote write unexpectedly enabled mTLS")
 	}
 }
 

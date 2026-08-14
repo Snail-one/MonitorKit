@@ -117,7 +117,7 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 			ui.Field{Label: "服务地址", Value: componentAddress(configuration.MTLSEnabled, configuration.ListenPort)},
 		}
 		if component.name == "prometheus" {
-			fields = append(fields, ui.Field{Label: "远程写入", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "接收地址：/api/v1/write；仅允许在 mTLS 已启用时开启"})
+			fields = append(fields, ui.Field{Label: "远程写入", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "接收地址：/api/v1/write；mTLS 推荐，HTTP 需确认风险"})
 		}
 		fields = append(fields, ui.Field{Label: "传输安全", Value: transport})
 		a.ui.Card(ui.Neutral, component.description, fields...)
@@ -227,7 +227,7 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 			{Label: "证书目录", Value: configuration.TLSDir},
 		}
 		if component.name == "prometheus" {
-			configFields = append(configFields, ui.Field{Label: "远程写入接收", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "独立开关；开启前必须先启用 mTLS"})
+			configFields = append(configFields, ui.Field{Label: "远程写入接收", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "独立开关；HTTP 模式开启时会显示明文传输警告"})
 		}
 		a.ui.Card(ui.Neutral, component.label+"配置", configFields...)
 		a.ui.Blank()
@@ -246,7 +246,11 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 			a.ui.Option("6", remoteWriteLabel, remoteWriteBadge)
 		}
 		if configuration.MTLSEnabled && component.name == "prometheus" {
-			a.ui.Option("7", "关闭 mTLS", a.ui.Badge("同时关闭远程写入", false))
+			badge := "保留证书"
+			if configuration.RemoteWriteEnabled {
+				badge = "远程写入转为 HTTP"
+			}
+			a.ui.Option("7", "关闭 mTLS", a.ui.Badge(badge, false))
 		} else if configuration.MTLSEnabled {
 			a.ui.Option("6", "关闭 mTLS", a.ui.Badge("保留证书", false))
 		}
@@ -303,18 +307,21 @@ func (a *App) unavailableConfigAction(component componentView) {
 func (a *App) toggleRemoteWrite(ctx context.Context, component componentView, configuration manager.Configuration) {
 	enable := !configuration.RemoteWriteEnabled
 	if enable && !configuration.MTLSEnabled {
-		a.ui.Card(ui.Warning, "无法开启 Prometheus 远程写入",
-			ui.Field{Label: "原因", Value: "远程写入接收接口必须使用 mTLS 保护"},
-			ui.Field{Label: "下一步", Value: "先选择“配置或更新 mTLS”，成功后再开启远程写入"},
+		a.ui.Card(ui.Warning, "Prometheus 远程写入将使用 HTTP",
+			ui.Field{Label: "风险", Value: "指标内容和请求凭据不会被 TLS 加密，网络中的其他设备可能读取或篡改数据"},
+			ui.Field{Label: "暴露范围", Value: "接收接口监听当前服务地址；请使用防火墙限制为可信探针 IP"},
+			ui.Field{Label: "推荐方案", Value: "返回配置菜单启用 mTLS 后再开放远程写入"},
 		)
-		a.ui.Pause()
-		return
 	}
 	action := "开启"
 	if !enable {
 		action = "关闭"
 	}
-	confirmed, err := a.ui.Confirm("确认" + action + " Prometheus 远程写入接收接口")
+	prompt := "确认" + action + " Prometheus 远程写入接收接口"
+	if enable && !configuration.MTLSEnabled {
+		prompt = "确认接受明文传输风险并通过 HTTP 开启 Prometheus 远程写入"
+	}
+	confirmed, err := a.ui.Confirm(prompt)
 	if err != nil || !confirmed {
 		return
 	}
@@ -328,11 +335,17 @@ func (a *App) toggleRemoteWrite(ctx context.Context, component componentView, co
 	result := "已关闭"
 	fields := []ui.Field{{Label: "状态", Value: result}}
 	if enable {
-		result = "已开启（mTLS）"
+		result = "已开启（HTTP，未加密）"
+		address := componentAddress(configuration.MTLSEnabled, configuration.ListenPort) + "/api/v1/write"
+		accessRequirement := "建议使用防火墙仅允许可信探针访问"
+		if configuration.MTLSEnabled {
+			result = "已开启（mTLS）"
+			accessRequirement = "客户端必须提供受信任的 mTLS 证书"
+		}
 		fields = []ui.Field{
 			{Label: "状态", Value: result},
-			{Label: "接收地址", Value: componentAddress(true, configuration.ListenPort) + "/api/v1/write"},
-			{Label: "访问要求", Value: "客户端必须提供受信任的 mTLS 证书"},
+			{Label: "接收地址", Value: address},
+			{Label: "访问要求", Value: accessRequirement},
 		}
 	}
 	a.ui.Card(ui.Success, "Prometheus 远程写入"+action+"完成", fields...)
@@ -482,7 +495,7 @@ func (a *App) configureComponentMTLS(ctx context.Context, component componentVie
 	if component.name == "prometheus" {
 		a.ui.Card(ui.Neutral, "Prometheus 远程写入使用独立开关",
 			ui.Field{Label: "当前操作", Value: "只配置 mTLS，不会自动开放 /api/v1/write"},
-			ui.Field{Label: "后续操作", Value: "mTLS 配置成功后，返回配置菜单单独开启远程写入"},
+			ui.Field{Label: "后续操作", Value: "返回配置菜单单独开启远程写入；HTTP 也可开启但会警告明文风险"},
 		)
 	}
 	confirmed, err := a.ui.Confirm("已准备好上述 3 个 PEM 文件，开始配置")
@@ -524,8 +537,18 @@ func (a *App) configureComponentMTLS(ctx context.Context, component componentVie
 
 func (a *App) disableComponentMTLS(ctx context.Context, component componentView) {
 	prompt := "确认关闭 " + component.label + " mTLS 并恢复 HTTP（证书保留）"
-	if component.name == "prometheus" {
-		prompt = "确认关闭 Prometheus mTLS（远程写入将同时关闭，证书保留）"
+	configuration, err := a.manager.Configuration(component.name)
+	if err != nil {
+		a.operationError("无法读取 "+component.label+" 配置", err)
+		return
+	}
+	if component.name == "prometheus" && configuration.RemoteWriteEnabled {
+		a.ui.Card(ui.Warning, "关闭 mTLS 后远程写入将继续开放",
+			ui.Field{Label: "协议变化", Value: "HTTPS + mTLS → HTTP 明文"},
+			ui.Field{Label: "风险", Value: "指标和请求内容将不再加密，请通过防火墙限制可信探针 IP"},
+			ui.Field{Label: "证书", Value: "现有证书会保留，可随时重新启用 mTLS"},
+		)
+		prompt = "确认接受明文传输风险并关闭 Prometheus mTLS"
 	}
 	confirmed, err := a.ui.Confirm(prompt)
 	if err != nil || !confirmed {
@@ -543,7 +566,11 @@ func (a *App) disableComponentMTLS(ctx context.Context, component componentView)
 		ui.Field{Label: "证书", Value: "已保留，可再次启用"},
 	}
 	if component.name == "prometheus" {
-		fields = append(fields, ui.Field{Label: "远程写入", Value: "已同时关闭"})
+		remoteWriteResult := "保持关闭"
+		if configuration.RemoteWriteEnabled {
+			remoteWriteResult = "继续开放（HTTP，未加密）"
+		}
+		fields = append(fields, ui.Field{Label: "远程写入", Value: remoteWriteResult})
 	}
 	a.ui.Card(ui.Success, component.label+" mTLS 已关闭", fields...)
 	a.ui.Pause()
@@ -726,8 +753,11 @@ func (a *App) showAlloyAccessCard(ctx context.Context) {
 		lokiAddress = componentAddress(lokiConfig.MTLSEnabled, lokiConfig.ListenPort)
 	}
 	promReady := "未就绪"
-	if promStatus.Installed && promConfig.MTLSEnabled && promConfig.RemoteWriteEnabled {
-		promReady = "已就绪（mTLS + 远程写入）"
+	if promStatus.Installed && promConfig.RemoteWriteEnabled {
+		promReady = "已就绪（HTTP 明文远程写入）"
+		if promConfig.MTLSEnabled {
+			promReady = "已就绪（mTLS + 远程写入）"
+		}
 	}
 	a.ui.Card(ui.Neutral, "Grafana Alloy 统一探针安装命令",
 		ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | sudo bash"},

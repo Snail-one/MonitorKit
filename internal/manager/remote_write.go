@@ -10,7 +10,8 @@ import (
 const remoteWriteMarkerName = "remote-write.enabled"
 
 // SetRemoteWrite controls Prometheus's remote-write receiver independently
-// from TLS configuration. Enabling it is rejected unless mTLS is active.
+// from TLS configuration. The presentation layer is responsible for warning
+// users before exposing the receiver over plain HTTP.
 func (m *Manager) SetRemoteWrite(ctx context.Context, name string, enabled bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -23,9 +24,6 @@ func (m *Manager) SetRemoteWrite(ctx context.Context, name string, enabled bool)
 		return errors.New("远程写入接收开关仅适用于 Prometheus")
 	}
 	mtlsEnabled := mtlsEnabledLocked(m, spec.name)
-	if enabled && !mtlsEnabled {
-		return errors.New("开启 Prometheus 远程写入前必须先配置并启用 mTLS")
-	}
 	if enabled == remoteWriteEnabledLocked(m) {
 		return nil
 	}
@@ -91,5 +89,5 @@ func remoteWriteEnabledLocked(m *Manager) bool {
 }
 
 func managedRemoteWriteEnabled(m *Manager, name string) bool {
-	return name == "prometheus" && mtlsEnabledLocked(m, name) && remoteWriteEnabledLocked(m)
+	return name == "prometheus" && remoteWriteEnabledLocked(m)
 }

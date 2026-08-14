@@ -125,6 +125,80 @@ func TestAlloyAccessCardShowsCurrentCenterPorts(t *testing.T) {
 	}
 }
 
+func TestAlloyAccessCardShowsConfirmedHTTPRemoteWrite(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"usr/local/bin/prometheus":            "installed\n",
+		"etc/prometheus/remote-write.enabled": "enabled\n",
+		"etc/prometheus/listen.port":          "19367\n",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("\n"), &output))
+	application.showAlloyAccessCard(context.Background())
+	got := output.String()
+	for _, want := range []string{"http://服务器地址:19367", "已就绪（HTTP 明文远程写入）"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("HTTP Alloy access card does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestHTTPRemoteWriteWarnsAndRequiresConfirmation(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"etc/prometheus/prometheus.yml": "scrape_configs: []\n",
+		"etc/prometheus/listen.port":    "19367\n",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "etc/systemd/system"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("y\n\n"), &output))
+	application.toggleRemoteWrite(context.Background(), componentViews["prometheus"], manager.Configuration{ListenPort: 19367})
+	got := output.String()
+	for _, want := range []string{"将使用 HTTP", "明文传输风险", "确认接受明文传输风险", "已开启（HTTP，未加密）"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("HTTP remote-write confirmation does not contain %q:\n%s", want, got)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc/prometheus/remote-write.enabled")); err != nil {
+		t.Fatalf("remote-write marker missing after confirmation: %v", err)
+	}
+	unit, err := os.ReadFile(filepath.Join(root, "etc/systemd/system/prometheus.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(unit), "--web.enable-remote-write-receiver") || strings.Contains(string(unit), "--web.config.file") {
+		t.Fatalf("unexpected HTTP remote-write unit:\n%s", unit)
+	}
+}
+
 func TestProbeMenuSeparatesAddAndManagedConfigurations(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	mgr, err := manager.New(t.TempDir())

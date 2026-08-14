@@ -11,8 +11,12 @@ readonly TLS_DIR="${CONFIG_DIR}/tls"
 
 PROMETHEUS_URL_PRESET=0
 LOKI_URL_PRESET=0
+PROMETHEUS_MTLS_MODE_PRESET=0
+LOKI_MTLS_MODE_PRESET=0
 [[ -n "${PROMETHEUS_URL+x}" ]] && PROMETHEUS_URL_PRESET=1
 [[ -n "${LOKI_URL+x}" ]] && LOKI_URL_PRESET=1
+[[ -n "${PROMETHEUS_MTLS_ENABLED+x}" ]] && PROMETHEUS_MTLS_MODE_PRESET=1
+[[ -n "${LOKI_MTLS_ENABLED+x}" ]] && LOKI_MTLS_MODE_PRESET=1
 
 PROMETHEUS_URL="${PROMETHEUS_URL:-}"
 LOKI_URL="${LOKI_URL:-}"
@@ -37,8 +41,8 @@ TEXT_EDITOR=""
 SELECTED_ACTION="install"
 RETURN_TO_MAIN=0
 PURGE_MODE=0
-PROMETHEUS_MTLS_ENABLED=1
-LOKI_MTLS_ENABLED=0
+PROMETHEUS_MTLS_ENABLED="${PROMETHEUS_MTLS_ENABLED:-1}"
+LOKI_MTLS_ENABLED="${LOKI_MTLS_ENABLED:-1}"
 WORK_DIR=""
 TRANSACTION_ACTIVE=0
 CONFIG_EXISTED=0
@@ -85,8 +89,8 @@ print_completion_card() {
   printf '%s│ %s服务：%salloy.service（运行中、开机自启）\n' "${ORANGE}" "${BLUE}" "${RESET}"
   printf '%s│ %s指标中心：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${PROMETHEUS_URL}"
   printf '%s│ %s日志中心：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${LOKI_URL}"
-  printf '%s│ %sPrometheus mTLS：%s已启用（必需）\n' "${ORANGE}" "${BLUE}" "${RESET}"
-  printf '%s│ %sLoki mTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "$([[ "${LOKI_MTLS_ENABLED}" == "1" ]] && printf '已启用' || printf '未启用')"
+  printf '%s│ %sPrometheus mTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "$([[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] && printf '已启用' || printf '未启用（HTTP，未加密）')"
+  printf '%s│ %sLoki mTLS：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "$([[ "${LOKI_MTLS_ENABLED}" == "1" ]] && printf '已启用' || printf '未启用（HTTP，未加密）')"
   printf '%s│ %s配置文件：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${CONFIG_FILE}"
   printf '%s%s%s\n' "${ORANGE}" "╰────────────────────────────────────────────────────" "${RESET}"
 }
@@ -117,16 +121,18 @@ Grafana Alloy 指标与日志统一探针维护脚本。
   sudo ./install.sh purge           # 直接彻底清理
 
 交互模式会填写 Prometheus/Loki 中心地址，并使用 vim、nano 或 vi 直接
-编辑 /etc/alloy/tls/ 中的 mTLS 证书。Prometheus 远程写入强制使用 mTLS；
-Loki 可以选择 HTTP/HTTPS，使用 mTLS 时必须填写独立的客户端证书。
+编辑 /etc/alloy/tls/ 中的 mTLS 证书。Prometheus 和 Loki 均默认推荐 mTLS；
+选择不启用时会显示明文传输风险并要求再次确认，然后使用普通 HTTP。
 
 无人值守配置变量：
   PROMETHEUS_URL=https://monitor.example.com:24567
+  PROMETHEUS_MTLS_ENABLED=1
   PROMETHEUS_MTLS_CA_FILE=/root/prometheus-ca.crt
   PROMETHEUS_MTLS_CERT_FILE=/root/prometheus-alloy.crt
   PROMETHEUS_MTLS_KEY_FILE=/root/prometheus-alloy.key
   PROMETHEUS_TLS_SERVER_NAME=monitor.example.com
   LOKI_URL=https://logs.example.com:34567
+  LOKI_MTLS_ENABLED=1
   LOKI_MTLS_CA_FILE=/root/loki-ca.crt
   LOKI_MTLS_CERT_FILE=/root/loki-alloy.crt
   LOKI_MTLS_KEY_FILE=/root/loki-alloy.key
@@ -231,7 +237,7 @@ valid_backend_url() {
 
 normalize_backend_url_input() {
   local value="$1"
-  local default_scheme="${2:-http}"
+  local default_scheme="${2:-https}"
   value="$(trim_value "${value}")"
   value="${value%/}"
   if [[ -n "${value}" && "${value}" != *://* ]]; then
@@ -248,7 +254,7 @@ prompt_backend_url() {
   local value="${!variable_name:-}"
   local entered=""
   local candidate=""
-  local default_scheme="${required_scheme:-http}"
+  local default_scheme="${required_scheme:-https}"
 
   if [[ -n "${value}" && "${force_prompt}" != "1" ]]; then
     value="$(normalize_backend_url_input "${value}" "${default_scheme}")"
@@ -265,8 +271,10 @@ prompt_backend_url() {
       printf '❯ %s 根地址 [%s]： ' "${label}" "${value}" >&2
     elif [[ "${required_scheme}" == "https" ]]; then
       printf '❯ %s 地址（可直接输入 IP:端口，例如 10.0.0.10:24567，自动使用 HTTPS）： ' "${label}" >&2
+    elif [[ "${required_scheme}" == "http" ]]; then
+      printf '❯ %s 地址（已确认不启用 mTLS；输入 IP:端口将使用 HTTP）： ' "${label}" >&2
     else
-      printf '❯ %s 地址（可直接输入 IP:端口，例如 10.0.0.10:34567，默认使用 HTTP）： ' "${label}" >&2
+      printf '❯ %s 根地址（请输入 http:// 或 https://）： ' "${label}" >&2
     fi
     IFS= read -e -r entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
     entered="$(trim_value "${entered}")"
@@ -277,7 +285,9 @@ prompt_backend_url() {
       return 0
     fi
     if [[ "${required_scheme}" == "https" ]]; then
-      warn "Prometheus 远程写入要求 mTLS；请输入 主机:端口（自动使用 HTTPS）或 https://主机:端口"
+      warn "已选择 mTLS；请输入 主机:端口（自动使用 HTTPS）或 https://主机:端口"
+    elif [[ "${required_scheme}" == "http" ]]; then
+      warn "已选择不启用 mTLS；请输入 主机:端口（自动使用 HTTP）或 http://主机:端口"
     else
       warn "地址无效，请输入 主机:端口、http://主机:端口 或 https://主机:端口"
     fi
@@ -310,7 +320,7 @@ prompt_server_name() {
   set_interactive_device
   while true; do
     printf '❯ %s TLS server_name [%s]： ' "${label}" "${default_value}" >&2
-    IFS= read -r entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
+    IFS= read -e -r entered <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
     entered="$(trim_value "${entered:-${default_value}}")"
     if [[ "${entered}" =~ ^[A-Za-z0-9._-]+$ ]]; then
       printf -v "${variable_name}" '%s' "${entered}"
@@ -335,7 +345,6 @@ is_installed() {
 }
 
 load_existing_settings() {
-  local server_names=""
   [[ -r "${CONFIG_FILE}" ]] || return 0
   if [[ -z "${PROMETHEUS_URL}" ]]; then
     PROMETHEUS_URL="$(awk -F'"' '/url[[:space:]]*=[[:space:]]*".*\/api\/v1\/write"/ { sub(/\/api\/v1\/write$/, "", $2); print $2; exit }' "${CONFIG_FILE}")"
@@ -343,14 +352,24 @@ load_existing_settings() {
   if [[ -z "${LOKI_URL}" ]]; then
     LOKI_URL="$(awk -F'"' '/url[[:space:]]*=[[:space:]]*".*\/loki\/api\/v1\/push"/ { sub(/\/loki\/api\/v1\/push$/, "", $2); print $2; exit }' "${CONFIG_FILE}")"
   fi
-  server_names="$(awk -F'"' '/server_name[[:space:]]*=/ { print $2 }' "${CONFIG_FILE}")"
   if [[ -z "${PROMETHEUS_TLS_SERVER_NAME}" ]]; then
-    PROMETHEUS_TLS_SERVER_NAME="$(sed -n '1p' <<<"${server_names}")"
+    PROMETHEUS_TLS_SERVER_NAME="$(awk -F'"' '/prometheus\.remote_write "center"/ { active=1 } /loki\.source\.journal/ { active=0 } active && /server_name[[:space:]]*=/ { print $2; exit }' "${CONFIG_FILE}")"
   fi
   if [[ -z "${LOKI_TLS_SERVER_NAME}" ]]; then
-    LOKI_TLS_SERVER_NAME="$(sed -n '2p' <<<"${server_names}")"
+    LOKI_TLS_SERVER_NAME="$(awk -F'"' '/loki\.write "center"/ { active=1 } active && /server_name[[:space:]]*=/ { print $2; exit }' "${CONFIG_FILE}")"
   fi
-  [[ -f "${TLS_DIR}/loki-ca.crt" && -f "${TLS_DIR}/loki-client.crt" && -f "${TLS_DIR}/loki-client.key" ]] && LOKI_MTLS_ENABLED=1
+  if [[ "${PROMETHEUS_MTLS_MODE_PRESET}" == "0" ]]; then
+    PROMETHEUS_MTLS_ENABLED=0
+    if grep -qF "${TLS_DIR}/prometheus-ca.crt" "${CONFIG_FILE}"; then
+      PROMETHEUS_MTLS_ENABLED=1
+    fi
+  fi
+  if [[ "${LOKI_MTLS_MODE_PRESET}" == "0" ]]; then
+    LOKI_MTLS_ENABLED=0
+    if grep -qF "${TLS_DIR}/loki-ca.crt" "${CONFIG_FILE}"; then
+      LOKI_MTLS_ENABLED=1
+    fi
+  fi
 }
 
 choose_install_action() {
@@ -693,33 +712,75 @@ configure_backend_certificates() {
   printf -v "${key_variable}" '%s' "${key_destination}"
 }
 
+normalize_mtls_mode() {
+  local variable_name="$1"
+  local value="${!variable_name:-}"
+  case "${value,,}" in
+    1|true|yes|y) printf -v "${variable_name}" '%s' 1 ;;
+    0|false|no|n) printf -v "${variable_name}" '%s' 0 ;;
+    *) die "${variable_name} 只支持 1/0、true/false、yes/no 或 y/n" ;;
+  esac
+}
+
+choose_backend_mtls_mode() {
+  local backend="$1"
+  local label="$2"
+  local enabled_variable="${backend}_MTLS_ENABLED"
+  local preset_variable="${backend}_MTLS_MODE_PRESET"
+  local current="${!enabled_variable:-1}"
+
+  normalize_mtls_mode "${enabled_variable}"
+  [[ "${!preset_variable}" == "0" ]] || return 0
+  detect_interactive_device || return 0
+
+  while true; do
+    current="${!enabled_variable}"
+    if ask_yes_no_default "${label} 是否启用 mTLS（推荐）" "$([[ "${current}" == "1" ]] && printf yes || printf no)"; then
+      printf -v "${enabled_variable}" '%s' 1
+      result "${label} 将使用 HTTPS + mTLS"
+      return 0
+    fi
+    printf '\n'
+    warn "${label} 将使用 HTTP 明文传输，数据和请求内容可能被网络中的其他设备读取或篡改"
+    warn "请通过防火墙限制中心端口只允许可信探针 IP 访问"
+    if ask_yes_no_default "确认接受风险并让 ${label} 使用 HTTP" no; then
+      printf -v "${enabled_variable}" '%s' 0
+      result "已确认：${label} 将使用 HTTP（未加密）"
+      return 0
+    fi
+    info "已取消 HTTP 模式，请重新选择"
+    printf -v "${enabled_variable}" '%s' 1
+  done
+}
+
 collect_connection_settings() {
   local force_prompt="$1"
+  local prometheus_env_configured="${PROMETHEUS_MTLS_CA_FILE}${PROMETHEUS_MTLS_CERT_FILE}${PROMETHEUS_MTLS_KEY_FILE}${PROMETHEUS_TLS_SERVER_NAME}"
   local loki_env_configured="${LOKI_MTLS_CA_FILE}${LOKI_MTLS_CERT_FILE}${LOKI_MTLS_KEY_FILE}${LOKI_TLS_SERVER_NAME}"
+  local prometheus_scheme="https"
+  local loki_scheme="https"
 
   printf '\n'
   step "配置数据接收中心"
-  info "Prometheus 接收端必须已开启 mTLS 和远程写入接收"
-  prompt_backend_url PROMETHEUS_URL Prometheus https "$([[ "${PROMETHEUS_URL_PRESET}" == "1" ]] && printf 0 || printf '%s' "${force_prompt}")"
-  prompt_backend_url LOKI_URL Loki "" "$([[ "${LOKI_URL_PRESET}" == "1" ]] && printf 0 || printf '%s' "${force_prompt}")"
-
-  PROMETHEUS_MTLS_ENABLED=1
-  if [[ -n "${loki_env_configured}" ]]; then
-    LOKI_MTLS_ENABLED=1
-  elif detect_interactive_device; then
-    if ask_yes_no_default "Loki 是否启用 mTLS 客户端证书认证" "$([[ "${LOKI_MTLS_ENABLED}" == "1" ]] && printf yes || printf no)"; then
-      LOKI_MTLS_ENABLED=1
-    else
-      LOKI_MTLS_ENABLED=0
-    fi
+  info "Prometheus 接收端必须已单独开启远程写入接收；mTLS 为推荐项但不再强制"
+  if [[ "${PROMETHEUS_MTLS_MODE_PRESET}" == "0" && -n "${prometheus_env_configured}" ]]; then
+    PROMETHEUS_MTLS_ENABLED=1
   fi
+  if [[ "${LOKI_MTLS_MODE_PRESET}" == "0" && -n "${loki_env_configured}" ]]; then
+    LOKI_MTLS_ENABLED=1
+  fi
+  choose_backend_mtls_mode PROMETHEUS Prometheus
+  choose_backend_mtls_mode LOKI Loki
 
-  [[ "${PROMETHEUS_URL}" == https://* ]] || die "Prometheus mTLS 地址必须使用 https://"
+  [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] || prometheus_scheme="http"
+  [[ "${LOKI_MTLS_ENABLED}" == "1" ]] || loki_scheme="http"
+  prompt_backend_url PROMETHEUS_URL Prometheus "${prometheus_scheme}" "$([[ "${PROMETHEUS_URL_PRESET}" == "1" ]] && printf 0 || printf '%s' "${force_prompt}")"
+  prompt_backend_url LOKI_URL Loki "${loki_scheme}" "$([[ "${LOKI_URL_PRESET}" == "1" ]] && printf 0 || printf '%s' "${force_prompt}")"
+
   valid_backend_url "${PROMETHEUS_URL}" || die "PROMETHEUS_URL 格式无效"
   valid_backend_url "${LOKI_URL}" || die "LOKI_URL 格式无效"
-  if [[ "${LOKI_MTLS_ENABLED}" == "1" ]]; then
-    [[ "${LOKI_URL}" == https://* ]] || die "Loki 启用 mTLS 时地址必须使用 https://"
-  fi
+  [[ "${PROMETHEUS_URL}" == "${prometheus_scheme}://"* ]] || die "Prometheus 地址协议与 mTLS 选择不一致"
+  [[ "${LOKI_URL}" == "${loki_scheme}://"* ]] || die "Loki 地址协议与 mTLS 选择不一致"
 }
 
 prepare_mtls_configuration() {
@@ -730,12 +791,18 @@ prepare_mtls_configuration() {
     [[ "${LOKI_URL_PRESET}" == "1" ]] || loki_force_prompt=1
   fi
 
-  printf '\n'
-  step "配置 Prometheus mTLS"
-  configure_backend_certificates PROMETHEUS Prometheus
-  [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
-  prompt_server_name PROMETHEUS_TLS_SERVER_NAME Prometheus "${PROMETHEUS_URL}" "${prometheus_force_prompt}"
-  [[ "${PROMETHEUS_TLS_SERVER_NAME}" =~ ^[A-Za-z0-9._-]+$ ]] || die "Prometheus TLS server_name 格式无效"
+  if [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]]; then
+    printf '\n'
+    step "配置 Prometheus mTLS"
+    configure_backend_certificates PROMETHEUS Prometheus
+    [[ "${RETURN_TO_MAIN}" == "0" ]] || return 0
+    prompt_server_name PROMETHEUS_TLS_SERVER_NAME Prometheus "${PROMETHEUS_URL}" "${prometheus_force_prompt}"
+    [[ "${PROMETHEUS_TLS_SERVER_NAME}" =~ ^[A-Za-z0-9._-]+$ ]] || die "Prometheus TLS server_name 格式无效"
+  else
+    rm -f -- "${TLS_DIR}/prometheus-ca.crt" "${TLS_DIR}/prometheus-client.crt" "${TLS_DIR}/prometheus-client.key"
+    PROMETHEUS_TLS_SERVER_NAME=""
+    info "Prometheus mTLS 未启用，旧的 Prometheus 客户端证书（如有）已即时删除"
+  fi
 
   if [[ "${LOKI_MTLS_ENABLED}" == "1" ]]; then
     printf '\n'
@@ -752,9 +819,10 @@ prepare_mtls_configuration() {
 }
 
 write_config() {
-  local temp_file prometheus_tls_config loki_tls_config=""
+  local temp_file prometheus_tls_config="" loki_tls_config=""
   temp_file="${WORK_DIR}/config.alloy.new"
-  prometheus_tls_config="$(cat <<EOF
+  if [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]]; then
+    prometheus_tls_config="$(cat <<EOF
     tls_config {
       ca_file     = "${TLS_DIR}/prometheus-ca.crt"
       cert_file   = "${TLS_DIR}/prometheus-client.crt"
@@ -763,6 +831,7 @@ write_config() {
     }
 EOF
 )"
+  fi
   if [[ "${LOKI_MTLS_ENABLED}" == "1" ]]; then
     loki_tls_config="$(cat <<EOF
     tls_config {
@@ -898,10 +967,10 @@ show_status() {
   active="$(systemctl is-active alloy.service 2>/dev/null || true)"
   enabled="$(systemctl is-enabled alloy.service 2>/dev/null || true)"
   load_existing_settings
-  prometheus_status="缺失"
-  loki_status="未启用"
-  [[ -f "${TLS_DIR}/prometheus-ca.crt" && -f "${TLS_DIR}/prometheus-client.crt" && -f "${TLS_DIR}/prometheus-client.key" ]] && prometheus_status="已配置"
-  [[ -f "${TLS_DIR}/loki-ca.crt" && -f "${TLS_DIR}/loki-client.crt" && -f "${TLS_DIR}/loki-client.key" ]] && loki_status="已配置"
+  prometheus_status="未启用（HTTP，未加密）"
+  loki_status="未启用（HTTP，未加密）"
+  [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] && prometheus_status="已启用"
+  [[ "${LOKI_MTLS_ENABLED}" == "1" ]] && loki_status="已启用"
 
   printf '\n%s%s%s\n' "${BOLD}${ORANGE}" "╭─ Grafana Alloy" "${RESET}"
   printf '%s│ %s安装版本：%s%s\n' "${ORANGE}" "${BLUE}" "${RESET}" "${version:-未安装}"

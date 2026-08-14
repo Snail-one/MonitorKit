@@ -139,8 +139,8 @@ func TestDisableMTLSPreservesCertificates(t *testing.T) {
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("mTLS marker still exists: %v", err)
 	}
-	if _, err := os.Stat(remoteWriteMarker); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("remote-write marker still exists: %v", err)
+	if _, err := os.Stat(remoteWriteMarker); err != nil {
+		t.Fatalf("remote-write marker was not preserved: %v", err)
 	}
 	if _, err := os.Stat(certificate); err != nil {
 		t.Fatalf("certificate was not preserved: %v", err)
@@ -151,6 +151,9 @@ func TestDisableMTLSPreservesCertificates(t *testing.T) {
 	}
 	if strings.Contains(string(unit), "--web.config.file") {
 		t.Fatal("plain unit still enables Prometheus mTLS")
+	}
+	if !strings.Contains(string(unit), "--web.enable-remote-write-receiver") {
+		t.Fatal("disabling mTLS unexpectedly disabled remote write")
 	}
 }
 

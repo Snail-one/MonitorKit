@@ -58,9 +58,9 @@
 /etc/alloy/
 ├── config.alloy
 └── tls/
-    ├── prometheus-ca.crt
-    ├── prometheus-client.crt
-    ├── prometheus-client.key
+    ├── prometheus-ca.crt                # Prometheus 选择 mTLS 时
+    ├── prometheus-client.crt            # Prometheus 选择 mTLS 时
+    ├── prometheus-client.key            # Prometheus 选择 mTLS 时
     ├── loki-ca.crt                      # Loki 选择 mTLS 时
     ├── loki-client.crt                  # Loki 选择 mTLS 时
     └── loki-client.key                  # Loki 选择 mTLS 时
@@ -169,7 +169,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 
 `/var/lib/prometheus/` 是完整的数据边界。Prometheus 会在其中生成 TSDB 块目录、`wal/`、`chunks_head/`、`queries.active`、`lock` 等运行时内容；具体文件会随 Prometheus 版本和数据状态变化。
 
-首次安装从 `10000-59999` 中选择一个当时可用的随机端口。更新会读取 `listen.port` 并保持端口不变，同时替换二进制和 systemd unit；已经存在的 `prometheus.yml` 会保留，不会被默认配置覆盖。存在 `mtls.enabled` 时，新 unit 会继续引用 `web.yml`，不会在更新后退回 HTTP。远程写入默认关闭，只有 mTLS 已启用且存在 `remote-write.enabled` 时，unit 才会开放 `/api/v1/write`；关闭 mTLS 会同步删除该开关标记。
+首次安装从 `10000-59999` 中选择一个当时可用的随机端口。更新会读取 `listen.port` 并保持端口不变，同时替换二进制和 systemd unit；已经存在的 `prometheus.yml` 会保留，不会被默认配置覆盖。存在 `mtls.enabled` 时，新 unit 会继续引用 `web.yml`，不会在更新后退回 HTTP。远程写入默认关闭，存在 `remote-write.enabled` 时 unit 会开放 `/api/v1/write`，该开关与 mTLS 独立：HTTP 模式允许开启但交互界面会警告明文风险；关闭 mTLS 不再删除远程写入标记。
 
 添加、修改、启停或删除 node_exporter 接入时，MonitorKit 会更新 `inventory.json` 和 `prometheus.yml` 中带有 `BEGIN/END MONITORKIT MANAGED PROBES` 标记的受管 scrape job。新配置只有通过 `promtool` 校验并成功 reload/restart 后才生效，失败会恢复清单和主配置。删除接入配置会删除该探针在中心端保存的 mTLS 文件，但不会连接远程服务器或卸载远程 node_exporter。
 

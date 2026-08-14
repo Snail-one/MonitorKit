@@ -263,31 +263,22 @@ func (m *Manager) DisableMTLS(ctx context.Context, name string) error {
 	name = spec.name
 	unitPath := m.path("/etc/systemd/system/" + name + ".service")
 	markerPath := m.mtlsMarkerPath(name)
-	remoteWriteMarkerPath := m.remoteWriteMarkerPath()
+	remoteWriteEnabled := name == "prometheus" && remoteWriteEnabledLocked(m)
 	listenPort, err := m.ensureListenPortLocked(name)
 	if err != nil {
 		return err
 	}
 	managedPaths := []string{unitPath, markerPath}
-	if name == "prometheus" {
-		managedPaths = append(managedPaths, remoteWriteMarkerPath)
-	}
 	snapshots, err := snapshotFiles(managedPaths)
 	if err != nil {
 		return err
 	}
-	if err := atomicWrite(unitPath, []byte(spec.unit(false, false, listenPort)), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(spec.unit(false, remoteWriteEnabled, listenPort)), 0644); err != nil {
 		return err
 	}
 	if err := os.Remove(markerPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		_ = restoreSnapshots(snapshots)
 		return err
-	}
-	if name == "prometheus" {
-		if err := os.Remove(remoteWriteMarkerPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			_ = restoreSnapshots(snapshots)
-			return err
-		}
 	}
 	if m.isLiveRoot() {
 		if err := run(ctx, "systemctl", "daemon-reload"); err != nil {

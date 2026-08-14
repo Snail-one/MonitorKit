@@ -118,7 +118,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/p
   sudo bash
 ```
 
-脚本会交互询问 Prometheus、Loki 根地址（包含中心界面显示的随机端口）和客户端证书。Prometheus 远程写入强制使用 mTLS；Loki 的 mTLS 可选。通过管道执行时会从 `/dev/tty` 读取输入，不会与下载脚本使用的标准输入冲突。
+脚本会分别询问 Prometheus、Loki 是否启用 mTLS，首次配置均默认推荐启用。启用时，裸 `IP:端口` 自动补为 `https://` 并填写客户端证书；选择不启用时会先警告明文传输风险，再次确认后裸地址才补为 `http://`。通过管道执行时会从 `/dev/tty` 读取输入，不会与下载脚本使用的标准输入冲突。
 
 Alloy 已安装时，再次运行同一命令会进入维护菜单，可选择更新软件包、仅重新配置、查看状态、普通卸载或彻底清理。交互配置会按 `vim → nano → vi` 自动选择编辑器，直接填写 `/etc/alloy/tls/` 中的受管 PEM 文件；配置和服务启动失败会恢复操作前的配置与证书，不保留无效副本。
 
@@ -153,7 +153,7 @@ Prometheus 和 Loki 的管理菜单均提供“配置管理”：
 - 首次安装会分别生成 `10000-59999` 范围内的可用随机监听端口，并写入 `/etc/prometheus/listen.port` 或 `/etc/loki/listen.port`；更新时保持不变。
 - 可以输入指定端口或重新随机生成端口；变更会检查端口占用，失败时恢复原配置和原端口。修改后需要同步更新探针中心地址及防火墙规则。
 - 可以配置、更新或关闭服务端 mTLS；关闭和普通卸载均保留证书，`purge` 才会删除。
-- Prometheus 的远程写入接收使用独立开关：默认关闭，启用 mTLS 后仍需单独开启；关闭 mTLS 时会同时关闭远程写入。
+- Prometheus 的远程写入接收使用独立开关且默认关闭。mTLS 模式可直接确认开启；HTTP 模式也允许开启，但界面会警告指标与请求未加密并要求再次确认。关闭 mTLS 会保留远程写入开关状态，已开放的接收端会转为 HTTP。
 - 组件更新会读取受管 mTLS 状态，不会把 HTTPS 配置覆盖回 HTTP。
 
 中心端 mTLS 需要依次填写：
@@ -169,7 +169,7 @@ Prometheus 和 Loki 的管理菜单均提供“配置管理”：
 Prometheus 还会生成 `/etc/prometheus/web.yml`。证书和私钥会通过 OpenSSL 检查格式与匹配关系，服务配置通过校验后才会重启。
 启用 mTLS 后，该端口上的 Web UI、查询 API 和健康检查都会要求受信任的客户端证书；`/api/v1/write` 只有再打开“远程写入”独立开关后才存在。
 
-Alloy 安装时，Prometheus 必须填写以下 mTLS 信息；Loki 只有选择启用 mTLS 时才填写。交互模式直接编辑受管路径，无需先把证书放到其他临时路径：
+Alloy 为 Prometheus 或 Loki 选择 mTLS 时，需要填写以下信息。交互模式直接编辑受管路径，无需先把证书放到其他临时路径：
 
 ```text
 中心 HTTPS 根地址
@@ -179,7 +179,7 @@ Alloy 客户端私钥内容
 证书中的 TLS server_name
 ```
 
-Prometheus 与 Loki 的证书分别填写。安装 Alloy 前，还应在中心端 Prometheus 配置菜单中确认 mTLS 和“远程写入”独立开关均已开启。无人值守场景仍可使用脚本帮助中列出的环境变量。
+Prometheus 与 Loki 的证书分别填写。安装 Alloy 前，必须在中心端 Prometheus 配置菜单中单独开启“远程写入”；中心端是否启用 mTLS 必须与 Alloy 的选择一致。HTTP 模式不会要求证书，但数据未经 TLS 加密，应使用防火墙限制可信探针 IP。无人值守场景仍可使用脚本帮助中列出的环境变量。
 
 中心端选择“配置或更新 mTLS”后，会先完整显示三个目标文件、每个文件应填写的 PEM 内容和禁止填写的内容。确认已准备证书后，程序逐个显示当前步骤；每一步只有在用户按回车后才会打开检测到的 `vim`、`nano` 或 `vi`。证书格式、证书与私钥匹配关系及服务配置全部校验通过后才会重启。
 
