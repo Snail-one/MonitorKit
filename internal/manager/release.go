@@ -116,7 +116,35 @@ func (m *Manager) digestFromChecksumAsset(ctx context.Context, assets []releaseA
 	return ""
 }
 
-func (m *Manager) download(ctx context.Context, asset releaseAsset, destination string) error {
+type downloadProgressFunc func(downloaded, total int64, done bool)
+
+type downloadProgressWriter struct {
+	total       int64
+	downloaded  int64
+	lastPercent int64
+	lastBytes   int64
+	report      downloadProgressFunc
+}
+
+func (w *downloadProgressWriter) Write(data []byte) (int, error) {
+	w.downloaded += int64(len(data))
+	if w.report == nil {
+		return len(data), nil
+	}
+	if w.total > 0 {
+		percent := w.downloaded * 100 / w.total
+		if percent >= w.lastPercent+2 || w.downloaded >= w.total {
+			w.lastPercent = percent
+			w.report(w.downloaded, w.total, false)
+		}
+	} else if w.downloaded-w.lastBytes >= 1024*1024 {
+		w.lastBytes = w.downloaded
+		w.report(w.downloaded, w.total, false)
+	}
+	return len(data), nil
+}
+
+func (m *Manager) download(ctx context.Context, asset releaseAsset, destination string, progress downloadProgressFunc) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.DownloadURL, nil)
 	if err != nil {
 		return err
@@ -130,12 +158,16 @@ func (m *Manager) download(ctx context.Context, asset releaseAsset, destination 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("下载 %s 失败：HTTP %s", asset.Name, resp.Status)
 	}
+	if progress != nil {
+		progress(0, resp.ContentLength, false)
+	}
 	file, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
 	hash := sha256.New()
-	_, copyErr := io.Copy(io.MultiWriter(file, hash), resp.Body)
+	progressWriter := &downloadProgressWriter{total: resp.ContentLength, lastPercent: -2, report: progress}
+	_, copyErr := io.Copy(io.MultiWriter(file, hash, progressWriter), resp.Body)
 	closeErr := file.Close()
 	if copyErr != nil {
 		return copyErr
@@ -157,6 +189,9 @@ func (m *Manager) download(ctx context.Context, asset releaseAsset, destination 
 	got := hex.EncodeToString(hash.Sum(nil))
 	if got != want {
 		return fmt.Errorf("发布资源 %s 的 SHA-256 校验失败", asset.Name)
+	}
+	if progress != nil {
+		progress(progressWriter.downloaded, resp.ContentLength, true)
 	}
 	return nil
 }

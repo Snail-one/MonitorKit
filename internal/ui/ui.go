@@ -41,10 +41,11 @@ type Field struct {
 }
 
 type UI struct {
-	reader      *bufio.Reader
-	out         io.Writer
-	color       bool
-	interactive bool
+	reader             *bufio.Reader
+	out                io.Writer
+	color              bool
+	interactive        bool
+	progressLineActive bool
 }
 
 func New(input io.Reader, output io.Writer) *UI {
@@ -95,6 +96,59 @@ func (u *UI) ExitOption(label string) {
 }
 
 func (u *UI) Blank() { fmt.Fprintln(u.out) }
+
+// Progress prints a durable installation phase. Unlike the animated spinner,
+// completed lines remain visible so long downloads still have useful context.
+func (u *UI) Progress(step, total int, message, detail string) {
+	marker := u.paint(bold+orange, fmt.Sprintf("[%d/%d]", step, total))
+	fmt.Fprintf(u.out, "%s %s\n", marker, strings.TrimSpace(message))
+	if detail = strings.TrimSpace(detail); detail != "" {
+		fmt.Fprintf(u.out, "      %s\n", u.paint(gray, detail))
+	}
+}
+
+// DownloadProgress renders a real byte-based progress bar when attached to a
+// terminal. Redirected output only records the final result to stay readable.
+func (u *UI) DownloadProgress(downloaded, total int64, name string, done bool) {
+	name = strings.TrimSpace(name)
+	if !u.interactive {
+		if done {
+			fmt.Fprintf(u.out, "[下载完成] %s · %s\n", name, formatBytes(downloaded))
+		}
+		return
+	}
+
+	const width = 24
+	filled := 0
+	percentText := " --%"
+	sizeText := formatBytes(downloaded)
+	if total > 0 {
+		percent := downloaded * 100 / total
+		if percent > 100 {
+			percent = 100
+		}
+		filled = int(percent) * width / 100
+		percentText = fmt.Sprintf("%3d%%", percent)
+		sizeText += " / " + formatBytes(total)
+	} else if done {
+		filled = width
+		percentText = "完成"
+	}
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+	fmt.Fprintf(u.out, "\r\033[2K%s %s  %s  %s", u.paint(orange, bar), percentText, sizeText, u.paint(gray, name))
+	u.progressLineActive = true
+	if done {
+		fmt.Fprintln(u.out)
+		u.progressLineActive = false
+	}
+}
+
+func (u *UI) FinishProgressLine() {
+	if u.progressLineActive {
+		fmt.Fprintln(u.out)
+		u.progressLineActive = false
+	}
+}
 
 func (u *UI) Ask(prompt string) (string, error) {
 	prompt = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(prompt), "："))
@@ -220,4 +274,19 @@ func displayWidth(text string) int {
 		}
 	}
 	return width
+}
+
+func formatBytes(size int64) string {
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	}
+	value := float64(size)
+	units := []string{"KiB", "MiB", "GiB", "TiB"}
+	for _, unit := range units {
+		value /= 1024
+		if value < 1024 || unit == units[len(units)-1] {
+			return fmt.Sprintf("%.1f %s", value, unit)
+		}
+	}
+	return fmt.Sprintf("%d B", size)
 }

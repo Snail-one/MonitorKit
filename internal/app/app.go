@@ -157,12 +157,7 @@ func (a *App) install(ctx context.Context, component componentView, version stri
 	if err != nil || !confirmed {
 		return
 	}
-	var status manager.Status
-	err = a.ui.During("正在部署"+component.label, func() error {
-		var operationErr error
-		status, operationErr = a.manager.Install(ctx, component.name, version)
-		return operationErr
-	})
+	status, err := a.installWithProgress(ctx, component, version)
 	if err != nil {
 		a.operationError(component.label+"部署失败", err)
 		return
@@ -211,10 +206,7 @@ func (a *App) deployStack(ctx context.Context) {
 	installed := make([]string, 0, 2)
 	for _, name := range manager.ComponentNames() {
 		component := componentViews[name]
-		err := a.ui.During("正在部署"+component.label, func() error {
-			_, operationErr := a.manager.Install(ctx, name, "latest")
-			return operationErr
-		})
+		_, err := a.installWithProgress(ctx, component, "latest")
 		if err != nil {
 			a.operationError("监控栈部署未完成", fmt.Errorf("%s：%w", component.label, err))
 			return
@@ -226,6 +218,28 @@ func (a *App) deployStack(ctx context.Context) {
 		ui.Field{Label: "下一步", Value: "在目标服务器安装指标与日志探针"},
 	)
 	a.ui.Pause()
+}
+
+func (a *App) installWithProgress(ctx context.Context, component componentView, wantedVersion string) (manager.Status, error) {
+	target := wantedVersion
+	if wantedVersion == "latest" {
+		target = "最新稳定版"
+	}
+	a.ui.Blank()
+	a.ui.Card(ui.Neutral, "部署"+component.label,
+		ui.Field{Label: "目标版本", Value: target},
+	)
+	a.ui.Blank()
+	status, err := a.manager.InstallWithProgress(ctx, component.name, wantedVersion, func(progress manager.InstallProgress) {
+		if progress.Downloading {
+			a.ui.DownloadProgress(progress.Downloaded, progress.DownloadTotal, progress.Detail, progress.DownloadDone)
+			return
+		}
+		a.ui.Progress(progress.Step, progress.Total, progress.Message, progress.Detail)
+	})
+	a.ui.FinishProgressLine()
+	a.ui.Blank()
+	return status, err
 }
 
 func (a *App) probeMenu() error {

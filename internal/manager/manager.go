@@ -30,6 +30,22 @@ type Status struct {
 	ServiceState string `json:"service_state"`
 }
 
+// InstallProgress describes a visible phase of a component installation.
+// Manager remains presentation-agnostic; CLI callers may render these events,
+// while API callers can continue using Install without a progress callback.
+type InstallProgress struct {
+	Step          int
+	Total         int
+	Message       string
+	Detail        string
+	Downloading   bool
+	Downloaded    int64
+	DownloadTotal int64
+	DownloadDone  bool
+}
+
+type ProgressFunc func(InstallProgress)
+
 func New(root string) (*Manager, error) {
 	if root == "" {
 		return nil, errors.New("安装根目录不能为空")
@@ -64,9 +80,20 @@ func ComponentNames() []string {
 }
 
 func (m *Manager) Install(ctx context.Context, name, wantedVersion string) (Status, error) {
+	return m.InstallWithProgress(ctx, name, wantedVersion, nil)
+}
+
+func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion string, progress ProgressFunc) (Status, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	report := func(step int, message, detail string) {
+		if progress != nil {
+			progress(InstallProgress{Step: step, Total: 7, Message: message, Detail: detail})
+		}
+	}
+
+	report(1, "检查部署环境", "确认权限、操作系统与处理器架构")
 	spec, err := lookup(name)
 	if err != nil {
 		return Status{}, err
@@ -78,6 +105,11 @@ func (m *Manager) Install(ctx context.Context, name, wantedVersion string) (Stat
 	if err != nil {
 		return Status{}, err
 	}
+	releaseTarget := "最新稳定版"
+	if wantedVersion != "" && wantedVersion != "latest" {
+		releaseTarget = "指定版本 " + wantedVersion
+	}
+	report(2, "查询发布版本", "GitHub Release · "+releaseTarget)
 	version, asset, err := m.resolveRelease(ctx, spec, wantedVersion, arch)
 	if err != nil {
 		return Status{}, err
@@ -89,9 +121,23 @@ func (m *Manager) Install(ctx context.Context, name, wantedVersion string) (Stat
 	}
 	defer os.RemoveAll(tempDir)
 	archivePath := filepath.Join(tempDir, asset.Name)
-	if err := m.download(ctx, asset, archivePath); err != nil {
+	report(3, "下载并校验安装包", fmt.Sprintf("v%s · %s", version, asset.Name))
+	if err := m.download(ctx, asset, archivePath, func(downloaded, total int64, done bool) {
+		if progress != nil {
+			progress(InstallProgress{
+				Step:          3,
+				Total:         7,
+				Detail:        asset.Name,
+				Downloading:   true,
+				Downloaded:    downloaded,
+				DownloadTotal: total,
+				DownloadDone:  done,
+			})
+		}
+	}); err != nil {
 		return Status{}, err
 	}
+	report(4, "解压安装包", asset.Name)
 	binaries, err := extractBinaries(archivePath, tempDir, spec.binaries)
 	if err != nil {
 		return Status{}, fmt.Errorf("解压 %s：%w", asset.Name, err)
@@ -107,6 +153,7 @@ func (m *Manager) Install(ctx context.Context, name, wantedVersion string) (Stat
 		}
 	}
 
+	report(5, "安装程序文件", strings.Join(spec.binaries, "、"))
 	if m.isLiveRoot() {
 		if err := ensureSystemUser(ctx, spec.user); err != nil {
 			return Status{}, err
@@ -117,6 +164,7 @@ func (m *Manager) Install(ctx context.Context, name, wantedVersion string) (Stat
 			return Status{}, fmt.Errorf("安装 %s：%w", binary, err)
 		}
 	}
+	report(6, "写入配置与 systemd 服务", "/etc/"+name+" · /var/lib/"+name)
 	configPath := filepath.Join(configDir, name+".yml")
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
 		if err := atomicWrite(configPath, []byte(spec.config("/var/lib/"+name)), 0640); err != nil {
@@ -130,6 +178,13 @@ func (m *Manager) Install(ctx context.Context, name, wantedVersion string) (Stat
 		return Status{}, fmt.Errorf("写入 systemd 单元：%w", err)
 	}
 
+	finalMessage := "完成暂存部署"
+	finalDetail := "非系统根目录，不启动 systemd 服务"
+	if m.isLiveRoot() {
+		finalMessage = "校验配置并启动服务"
+		finalDetail = name + ".service"
+	}
+	report(7, finalMessage, finalDetail)
 	if m.isLiveRoot() {
 		if err := run(ctx, "chown", "-R", "root:"+spec.user, configDir); err != nil {
 			return Status{}, err
