@@ -36,7 +36,7 @@ jobs:
         run: |
           go test ./...
           go vet ./...
-          bash -n build.sh scripts/*.sh scripts/probes/*/install.sh
+          bash -n scripts/*.sh scripts/probes/*/install.sh
           bash scripts/test_installer.sh
 
   build:

@@ -15,7 +15,7 @@ checksums.txt
 ```bash
 go test ./...
 go vet ./...
-bash -n build.sh scripts/*.sh scripts/probes/*/install.sh
+bash -n scripts/*.sh scripts/probes/*/install.sh
 ```
 
 创建并推送语义化版本标签：

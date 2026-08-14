@@ -29,7 +29,7 @@ jobs:
         run: go vet ./...
 
       - name: Shell syntax
-        run: bash -n build.sh scripts/*.sh scripts/probes/*/install.sh
+        run: bash -n scripts/*.sh scripts/probes/*/install.sh
 
       - name: Installer integration test
         run: bash scripts/test_installer.sh

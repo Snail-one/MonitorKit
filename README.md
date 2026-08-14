@@ -32,14 +32,14 @@ MonitorKit/
 需要 Go 1.22 或更高版本：
 
 ```bash
-./build.sh
+OUTPUT=bin/snailmon ./scripts/build_linux.sh
 sudo install -m 0755 bin/snailmon /usr/local/bin/snailmon
 ```
 
-也可以运行 `make build`。编译脚本默认生成 `bin/snailmon`，并支持通过环境变量自定义输出路径或进行交叉编译：
+也可以运行 `make build`。发布构建脚本默认生成带版本和架构的 `dist/snailmon_linux_<arch>_<version>`，并支持通过 `OUTPUT` 自定义本地输出路径：
 
 ```bash
-OUTPUT=dist/snailmon-linux-amd64 GOOS=linux GOARCH=amd64 ./build.sh
+VERSION=v1.0.0 GOARCH=amd64 ./scripts/build_linux.sh
 ```
 
 启动交互式管理界面：
