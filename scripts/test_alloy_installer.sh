@@ -189,6 +189,13 @@ if ! NO_COLOR=1 NODE_EXPORTER_INSTALLER_SOURCE_ONLY=1 \
   exit 1
 fi
 
+if ! grep -qF 'source_labels = ["__journal__systemd_unit"]' "${INSTALLER}" || \
+   ! grep -qF 'target_label  = "unit"' "${INSTALLER}" || \
+   ! grep -qF 'max_age       = "1h"' "${INSTALLER}"; then
+  printf 'Alloy 默认 journal 配置没有保留服务名标签或缩短启动回读\n' >&2
+  exit 1
+fi
+
 ca_line="$(grep -nF 'edit_pem_file "${label} 服务端 CA 证书"' "${INSTALLER}" | cut -d: -f1)"
 cert_line="$(grep -nF 'edit_pem_file "${label} Alloy 完整客户端证书"' "${INSTALLER}" | cut -d: -f1)"
 key_line="$(grep -nF 'edit_pem_file "${label} Alloy 客户端私钥"' "${INSTALLER}" | cut -d: -f1)"

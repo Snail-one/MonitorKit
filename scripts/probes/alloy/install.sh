@@ -1170,10 +1170,32 @@ ${prometheus_tls_config}
   }
 }
 
+loki.relabel "journal" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "level"
+  }
+
+  rule {
+    source_labels = ["__journal__syslog_identifier"]
+    target_label  = "ident"
+  }
+}
+
 loki.source.journal "system" {
-  forward_to = [loki.write.center.receiver]
+  forward_to    = [loki.write.center.receiver]
+  relabel_rules = loki.relabel.journal.rules
+  max_age       = "1h"
   labels = {
     source = "systemd-journal",
+    job    = "alloy-one",
   }
 }
 
