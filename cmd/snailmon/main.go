@@ -14,14 +14,19 @@ import (
 
 	"github.com/Snail-one/MonitorKit/internal/app"
 	"github.com/Snail-one/MonitorKit/internal/manager"
+	"github.com/Snail-one/MonitorKit/internal/selfupdate"
 	api "github.com/Snail-one/MonitorKit/internal/server"
 	"github.com/Snail-one/MonitorKit/internal/ui"
+	"github.com/Snail-one/MonitorKit/internal/version"
 )
 
 const usage = `SnailMon 中心端管理程序
 
 用法：
   snailmon                                      # 交互式管理界面
+  snailmon --version
+  sudo snailmon update                         # 更新管理程序自身
+  sudo snailmon uninstall                      # 卸载管理程序自身
   snailmon install <prometheus|loki> [--version latest]
   snailmon uninstall <prometheus|loki> [--purge]
   snailmon status [prometheus|loki]
@@ -42,6 +47,28 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "--version", "-v", "version":
+			fmt.Println(version.Info())
+			return nil
+		case "update":
+			if os.Geteuid() != 0 {
+				return fmt.Errorf("更新管理程序需要 root 权限，请使用 sudo snailmon update")
+			}
+			fmt.Printf("安装脚本：%s\n", selfupdate.InstallScriptURL)
+			return selfupdate.Run(context.Background())
+		case "uninstall":
+			if len(args) == 1 {
+				if os.Geteuid() != 0 {
+					return fmt.Errorf("卸载管理程序需要 root 权限，请使用 sudo snailmon uninstall")
+				}
+				fmt.Printf("卸载脚本：%s\n", selfupdate.InstallScriptURL)
+				return selfupdate.Run(context.Background(), "--uninstall")
+			}
+		}
+	}
+
 	root := envOr("SNAILMON_ROOT", "/")
 	mgr, err := manager.New(root)
 	if err != nil {

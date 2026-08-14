@@ -6,6 +6,7 @@ SnailMon 是一套中心化服务器监控配置工具：中心服务器运行 G
 
 ```text
 MonitorKit/
+├── .github/workflows/             # 日常 CI 与标签发布
 ├── cmd/snailmon/                  # Go 中心端入口
 ├── internal/
 │   ├── app/                       # 交互菜单与业务流程编排
@@ -14,9 +15,13 @@ MonitorKit/
 │   └── ui/                        # 终端视觉组件与操作反馈
 ├── configs/                       # 配置示例
 ├── deploy/systemd/                # 中心端 systemd unit
-├── scripts/probes/
-│   ├── node_exporter/install.sh   # 主机指标探针
-│   └── alloy/install.sh           # 指标与日志统一探针
+├── scripts/
+│   ├── install.sh                 # 在线安装、更新和卸载
+│   ├── build_linux.sh             # Linux 发布构建
+│   ├── generate_release_notes.sh  # 自动生成发布说明
+│   └── probes/
+│       ├── node_exporter/install.sh
+│       └── alloy/install.sh
 └── docs/architecture.md           # 扩展规范
 ```
 
@@ -44,6 +49,30 @@ sudo snailmon
 ```
 
 交互界面提供中心组件状态总览、Prometheus/Loki 独立管理、监控栈一键部署、探针接入命令和 HTTP API 信息。终端支持颜色时会显示状态徽标和动态操作反馈；设置 `NO_COLOR=1` 可关闭颜色。
+
+## 在线安装、更新与卸载
+
+一键安装或更新最新正式版：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/install.sh | sudo sh
+```
+
+安装后可以直接更新或卸载管理程序：
+
+```bash
+snailmon --version
+sudo snailmon update
+sudo snailmon uninstall
+```
+
+在线卸载也可以直接调用脚本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/install.sh | sudo sh -s -- --uninstall
+```
+
+自身卸载不会删除 Prometheus、Loki、配置或监控数据。完整发布流程、指定版本安装和安全校验说明见 [发布文档](docs/release.md)。
 
 直接使用 CLI 安装中心组件：
 
@@ -147,4 +176,4 @@ sudo bash scripts/probes/alloy/install.sh uninstall
 make check
 ```
 
-该命令运行 Go 单元测试、`go vet` 和所有探针脚本的 Bash 语法检查。
+该命令运行 Go 单元测试、`go vet`、Shell 语法检查和安装器离线集成测试。

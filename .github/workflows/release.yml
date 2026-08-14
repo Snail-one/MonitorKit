@@ -1,0 +1,136 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '发布标签，例如 v1.0.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test and vet
+        run: |
+          go test ./...
+          go vet ./...
+          bash -n build.sh scripts/*.sh scripts/probes/*/install.sh
+          bash scripts/test_installer.sh
+
+  build:
+    name: build (linux/${{ matrix.goarch }})
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.tag_name || github.ref_name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch:
+          - amd64
+          - arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate release tag
+        run: |
+          case "${RELEASE_VERSION}" in
+            *[!A-Za-z0-9._-]* ) echo "Unsupported release tag characters" >&2; exit 1 ;;
+          esac
+          if ! printf '%s\n' "${RELEASE_VERSION}" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([._-][A-Za-z0-9._-]+)?$'; then
+            echo "Invalid release tag: ${RELEASE_VERSION}" >&2
+            exit 1
+          fi
+
+      - name: Build
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          VERSION="${RELEASE_VERSION}"
+          COMMIT="${GITHUB_SHA}"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w -X github.com/Snail-one/MonitorKit/internal/version.Version=${VERSION} -X github.com/Snail-one/MonitorKit/internal/version.Commit=${COMMIT} -X github.com/Snail-one/MonitorKit/internal/version.BuildDate=${BUILD_DATE}"
+          go build -trimpath -ldflags="${LDFLAGS}" -o "dist/snailmon_linux_${GOARCH}_${VERSION}" ./cmd/snailmon
+          if [ "${GOARCH}" = "amd64" ]; then
+            "dist/snailmon_linux_${GOARCH}_${VERSION}" --version
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: snailmon_linux_${{ matrix.goarch }}_${{ env.RELEASE_VERSION }}
+          path: dist/snailmon_linux_${{ matrix.goarch }}_${{ env.RELEASE_VERSION }}
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag_name || github.ref_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: release-assets
+        run: sha256sum snailmon_linux_* > checksums.txt
+
+      - name: Generate release notes
+        env:
+          TARGET_SHA: ${{ github.sha }}
+        run: bash scripts/generate_release_notes.sh "${RUNNER_TEMP}/release-notes.md"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
+          body_path: ${{ runner.temp }}/release-notes.md
+          generate_release_notes: true
+          files: release-assets/*

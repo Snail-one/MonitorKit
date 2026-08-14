@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Go test
+        run: go test ./...
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: Shell syntax
+        run: bash -n build.sh scripts/*.sh scripts/probes/*/install.sh
+
+      - name: Installer integration test
+        run: bash scripts/test_installer.sh
+
+      - name: Build
+        env:
+          CGO_ENABLED: 0
+        run: go build -trimpath ./cmd/snailmon

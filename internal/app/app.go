@@ -9,6 +9,7 @@ import (
 
 	"github.com/Snail-one/MonitorKit/internal/manager"
 	"github.com/Snail-one/MonitorKit/internal/ui"
+	"github.com/Snail-one/MonitorKit/internal/version"
 )
 
 type App struct {
@@ -57,7 +58,7 @@ func (a *App) Run(ctx context.Context) error {
 		if privileged {
 			access = "管理模式"
 		}
-		a.ui.Home("服务器可观测性控制台", access, privileged)
+		a.ui.Home("服务器可观测性控制台 · "+version.Version, access, privileged)
 		ready := readyCount(statuses)
 		a.ui.Option("1", "部署监控栈", a.ui.Badge(fmt.Sprintf("就绪 %d/2", ready), ready == 2))
 		a.ui.Option("2", "指标中心", a.statusBadge(statuses["prometheus"]))

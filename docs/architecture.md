@@ -14,6 +14,7 @@ configs/                      中心端配置示例
 deploy/systemd/               中心端 systemd 部署文件
 scripts/probes/<name>/        探针安装脚本，每个探针一个目录
 docs/                         架构和运维文档
+.github/workflows/            CI 与 GitHub Release 发布流程
 ```
 
 `internal/app` 只负责编排交互流程，`internal/ui` 不依赖监控业务。`internal/server` 仅依赖 `Manager` 接口，不包含 Prometheus 或 Loki 的分支逻辑。组件元数据统一注册在 `internal/manager/spec.go`，下载、SHA-256 校验和压缩包处理是公共能力。
