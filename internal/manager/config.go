@@ -14,11 +14,12 @@ import (
 const mtlsMarkerName = "mtls.enabled"
 
 type Configuration struct {
-	Name        string
-	Path        string
-	TLSDir      string
-	MTLSEnabled bool
-	ListenPort  int
+	Name               string
+	Path               string
+	TLSDir             string
+	MTLSEnabled        bool
+	ListenPort         int
+	RemoteWriteEnabled bool
 }
 
 type TLSFile struct {
@@ -50,11 +51,12 @@ func (m *Manager) Configuration(name string) (Configuration, error) {
 		return Configuration{}, err
 	}
 	return Configuration{
-		Name:        name,
-		Path:        m.path("/etc/" + name + "/" + name + ".yml"),
-		TLSDir:      m.path("/etc/" + name + "/tls"),
-		MTLSEnabled: mtlsEnabledLocked(m, name),
-		ListenPort:  listenPort,
+		Name:               name,
+		Path:               m.path("/etc/" + name + "/" + name + ".yml"),
+		TLSDir:             m.path("/etc/" + name + "/tls"),
+		MTLSEnabled:        mtlsEnabledLocked(m, name),
+		ListenPort:         listenPort,
+		RemoteWriteEnabled: managedRemoteWriteEnabled(m, name),
 	}, nil
 }
 
@@ -68,6 +70,7 @@ func (m *Manager) EditConfig(ctx context.Context, name string, edit EditFunc) er
 	if err != nil {
 		return err
 	}
+	name = spec.name
 	original, err := snapshotFile(configPath)
 	if err != nil {
 		return err
@@ -150,6 +153,7 @@ func (m *Manager) ConfigureMTLS(ctx context.Context, name string, edit TLSEditFu
 	if err != nil {
 		return err
 	}
+	name = spec.name
 	files := m.tlsFilesLocked(name)
 	markerPath := m.mtlsMarkerPath(name)
 	unitPath := m.path("/etc/systemd/system/" + name + ".service")
@@ -232,7 +236,7 @@ func (m *Manager) ConfigureMTLS(ctx context.Context, name string, edit TLSEditFu
 			return rollback(err, false)
 		}
 	}
-	if err := atomicWrite(unitPath, []byte(spec.unit(true, listenPort)), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(spec.unit(true, remoteWriteEnabledLocked(m), listenPort)), 0644); err != nil {
 		return rollback(err, false)
 	}
 	if err := atomicWrite(markerPath, []byte("enabled\n"), 0640); err != nil {
@@ -256,22 +260,34 @@ func (m *Manager) DisableMTLS(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	name = spec.name
 	unitPath := m.path("/etc/systemd/system/" + name + ".service")
 	markerPath := m.mtlsMarkerPath(name)
+	remoteWriteMarkerPath := m.remoteWriteMarkerPath()
 	listenPort, err := m.ensureListenPortLocked(name)
 	if err != nil {
 		return err
 	}
-	snapshots, err := snapshotFiles([]string{unitPath, markerPath})
+	managedPaths := []string{unitPath, markerPath}
+	if name == "prometheus" {
+		managedPaths = append(managedPaths, remoteWriteMarkerPath)
+	}
+	snapshots, err := snapshotFiles(managedPaths)
 	if err != nil {
 		return err
 	}
-	if err := atomicWrite(unitPath, []byte(spec.unit(false, listenPort)), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(spec.unit(false, false, listenPort)), 0644); err != nil {
 		return err
 	}
 	if err := os.Remove(markerPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		_ = restoreSnapshots(snapshots)
 		return err
+	}
+	if name == "prometheus" {
+		if err := os.Remove(remoteWriteMarkerPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			_ = restoreSnapshots(snapshots)
+			return err
+		}
 	}
 	if m.isLiveRoot() {
 		if err := run(ctx, "systemctl", "daemon-reload"); err != nil {

@@ -118,6 +118,10 @@ func TestDisableMTLSPreservesCertificates(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("enabled\n"), 0640); err != nil {
 		t.Fatal(err)
 	}
+	remoteWriteMarker := mgr.remoteWriteMarkerPath()
+	if err := os.WriteFile(remoteWriteMarker, []byte("enabled\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(certificate, []byte("certificate fixture\n"), 0640); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +129,7 @@ func TestDisableMTLSPreservesCertificates(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(unitPath), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(unitPath, []byte(prometheusUnit(true, 19090)), 0644); err != nil {
+	if err := os.WriteFile(unitPath, []byte(prometheusUnit(true, false, 19090)), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -134,6 +138,9 @@ func TestDisableMTLSPreservesCertificates(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("mTLS marker still exists: %v", err)
+	}
+	if _, err := os.Stat(remoteWriteMarker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("remote-write marker still exists: %v", err)
 	}
 	if _, err := os.Stat(certificate); err != nil {
 		t.Fatalf("certificate was not preserved: %v", err)

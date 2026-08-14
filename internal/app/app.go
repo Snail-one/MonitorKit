@@ -106,15 +106,19 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 			transport = "HTTPS + mTLS"
 		}
 		a.ui.Title(component.label)
-		a.ui.Card(ui.Neutral, component.description,
+		fields := []ui.Field{
 			ui.Field{Label: "安装状态", Value: installedText(status)},
 			ui.Field{Label: "服务状态", Value: serviceText(status.ServiceState)},
 			ui.Field{Label: "当前版本", Value: valueOr(status.Version, "—")},
 			ui.Field{Label: "配置文件", Value: component.configPath},
 			ui.Field{Label: "监听端口", Value: portText(configuration.ListenPort)},
 			ui.Field{Label: "服务地址", Value: componentAddress(configuration.MTLSEnabled, configuration.ListenPort)},
-			ui.Field{Label: "传输安全", Value: transport},
-		)
+		}
+		if component.name == "prometheus" {
+			fields = append(fields, ui.Field{Label: "远程写入", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "接收地址：/api/v1/write；仅允许在 mTLS 已启用时开启"})
+		}
+		fields = append(fields, ui.Field{Label: "传输安全", Value: transport})
+		a.ui.Card(ui.Neutral, component.description, fields...)
 		a.ui.Blank()
 		a.ui.Option("1", "安装或更新", a.ui.Badge("最新稳定版", true))
 		a.ui.Option("2", "安装指定版本", "")
@@ -182,19 +186,34 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		if configuration.MTLSEnabled {
 			mtlsStatus = "已启用（HTTPS，验证客户端证书）"
 		}
-		a.ui.Card(ui.Neutral, component.label+"配置",
+		configFields := []ui.Field{
 			ui.Field{Label: "主配置", Value: configuration.Path},
 			ui.Field{Label: "监听端口", Value: portText(configuration.ListenPort)},
 			ui.Field{Label: "mTLS", Value: mtlsStatus},
 			ui.Field{Label: "证书目录", Value: configuration.TLSDir},
-		)
+		}
+		if component.name == "prometheus" {
+			configFields = append(configFields, ui.Field{Label: "远程写入接收", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "独立开关；开启前必须先启用 mTLS"})
+		}
+		a.ui.Card(ui.Neutral, component.label+"配置", configFields...)
 		a.ui.Blank()
 		a.ui.Option("1", "编辑主配置", a.ui.Badge("vim/nano/vi", true))
 		a.ui.Option("2", "校验当前配置", "")
 		a.ui.Option("3", "重启并应用配置", "")
 		a.ui.Option("4", "修改监听端口", a.ui.Badge("当前 "+portText(configuration.ListenPort), true))
 		a.ui.Option("5", "配置或更新 mTLS", a.ui.Badge("证书校验", true))
-		if configuration.MTLSEnabled {
+		if component.name == "prometheus" {
+			remoteWriteLabel := "开启远程写入"
+			remoteWriteBadge := a.ui.Badge("已关闭", false)
+			if configuration.RemoteWriteEnabled {
+				remoteWriteLabel = "关闭远程写入"
+				remoteWriteBadge = a.ui.Badge("已开启", true)
+			}
+			a.ui.Option("6", remoteWriteLabel, remoteWriteBadge)
+		}
+		if configuration.MTLSEnabled && component.name == "prometheus" {
+			a.ui.Option("7", "关闭 mTLS", a.ui.Badge("同时关闭远程写入", false))
+		} else if configuration.MTLSEnabled {
 			a.ui.Option("6", "关闭 mTLS", a.ui.Badge("保留证书", false))
 		}
 		a.ui.ExitOption("返回" + component.label)
@@ -218,7 +237,16 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		case "5":
 			a.configureComponentMTLS(ctx, component)
 		case "6":
-			if configuration.MTLSEnabled {
+			if component.name == "prometheus" {
+				a.toggleRemoteWrite(ctx, component, configuration)
+			} else if configuration.MTLSEnabled {
+				a.disableComponentMTLS(ctx, component)
+			} else {
+				a.ui.InvalidChoice()
+				a.ui.Pause()
+			}
+		case "7":
+			if component.name == "prometheus" && configuration.MTLSEnabled {
 				a.disableComponentMTLS(ctx, component)
 			} else {
 				a.ui.InvalidChoice()
@@ -229,6 +257,45 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 			a.ui.Pause()
 		}
 	}
+}
+
+func (a *App) toggleRemoteWrite(ctx context.Context, component componentView, configuration manager.Configuration) {
+	enable := !configuration.RemoteWriteEnabled
+	if enable && !configuration.MTLSEnabled {
+		a.ui.Card(ui.Warning, "无法开启 Prometheus 远程写入",
+			ui.Field{Label: "原因", Value: "远程写入接收接口必须使用 mTLS 保护"},
+			ui.Field{Label: "下一步", Value: "先选择“配置或更新 mTLS”，成功后再开启远程写入"},
+		)
+		a.ui.Pause()
+		return
+	}
+	action := "开启"
+	if !enable {
+		action = "关闭"
+	}
+	confirmed, err := a.ui.Confirm("确认" + action + " Prometheus 远程写入接收接口")
+	if err != nil || !confirmed {
+		return
+	}
+	err = a.ui.During("正在"+action+" Prometheus 远程写入", func() error {
+		return a.manager.SetRemoteWrite(ctx, component.name, enable)
+	})
+	if err != nil {
+		a.operationError("Prometheus 远程写入"+action+"失败", err)
+		return
+	}
+	result := "已关闭"
+	fields := []ui.Field{{Label: "状态", Value: result}}
+	if enable {
+		result = "已开启（mTLS）"
+		fields = []ui.Field{
+			{Label: "状态", Value: result},
+			{Label: "接收地址", Value: componentAddress(true, configuration.ListenPort) + "/api/v1/write"},
+			{Label: "访问要求", Value: "客户端必须提供受信任的 mTLS 证书"},
+		}
+	}
+	a.ui.Card(ui.Success, "Prometheus 远程写入"+action+"完成", fields...)
+	a.ui.Pause()
 }
 
 func (a *App) changeComponentPort(ctx context.Context, component componentView, currentPort int) {
@@ -371,6 +438,12 @@ func (a *App) configureComponentMTLS(ctx context.Context, component componentVie
 			Detail: "任一文件无效都会即时清理本次修改并恢复原 mTLS 配置",
 		},
 	)
+	if component.name == "prometheus" {
+		a.ui.Card(ui.Neutral, "Prometheus 远程写入使用独立开关",
+			ui.Field{Label: "当前操作", Value: "只配置 mTLS，不会自动开放 /api/v1/write"},
+			ui.Field{Label: "后续操作", Value: "mTLS 配置成功后，返回配置菜单单独开启远程写入"},
+		)
+	}
 	confirmed, err := a.ui.Confirm("已准备好上述 3 个 PEM 文件，开始配置")
 	if err != nil || !confirmed {
 		return
@@ -395,17 +468,25 @@ func (a *App) configureComponentMTLS(ctx context.Context, component componentVie
 		a.operationError(component.label+" mTLS 配置失败", err)
 		return
 	}
-	a.ui.Card(ui.Success, component.label+" mTLS 已启用",
+	resultFields := []ui.Field{
 		ui.Field{Label: "协议", Value: "HTTPS"},
 		ui.Field{Label: "客户端认证", Value: "RequireAndVerifyClientCert"},
 		ui.Field{Label: "访问要求", Value: "Web/API 请求同样需要受信任的客户端证书"},
 		ui.Field{Label: "更新策略", Value: "组件更新时保留 mTLS"},
-	)
+	}
+	if component.name == "prometheus" {
+		resultFields = append(resultFields, ui.Field{Label: "远程写入", Value: "保持独立开关状态；请在配置菜单中单独开启"})
+	}
+	a.ui.Card(ui.Success, component.label+" mTLS 已启用", resultFields...)
 	a.ui.Pause()
 }
 
 func (a *App) disableComponentMTLS(ctx context.Context, component componentView) {
-	confirmed, err := a.ui.Confirm("确认关闭 " + component.label + " mTLS 并恢复 HTTP（证书保留）")
+	prompt := "确认关闭 " + component.label + " mTLS 并恢复 HTTP（证书保留）"
+	if component.name == "prometheus" {
+		prompt = "确认关闭 Prometheus mTLS（远程写入将同时关闭，证书保留）"
+	}
+	confirmed, err := a.ui.Confirm(prompt)
 	if err != nil || !confirmed {
 		return
 	}
@@ -416,10 +497,14 @@ func (a *App) disableComponentMTLS(ctx context.Context, component componentView)
 		a.operationError(component.label+" mTLS 关闭失败", err)
 		return
 	}
-	a.ui.Card(ui.Success, component.label+" mTLS 已关闭",
+	fields := []ui.Field{
 		ui.Field{Label: "当前协议", Value: "HTTP"},
 		ui.Field{Label: "证书", Value: "已保留，可再次启用"},
-	)
+	}
+	if component.name == "prometheus" {
+		fields = append(fields, ui.Field{Label: "远程写入", Value: "已同时关闭"})
+	}
+	a.ui.Card(ui.Success, component.label+" mTLS 已关闭", fields...)
 	a.ui.Pause()
 }
 
@@ -551,6 +636,7 @@ func (a *App) probeMenu() error {
 				ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | sudo bash"},
 				ui.Field{Label: "采集内容", Value: "CPU、内存、磁盘、网络指标与 systemd journal 日志"},
 				ui.Field{Label: "配置方式", Value: "脚本内交互填写中心地址与 mTLS 证书"},
+				ui.Field{Label: "Prometheus 前置条件", Value: "中心端已启用 mTLS，并单独开启远程写入接收"},
 			)
 			a.ui.Pause()
 		default:
@@ -643,4 +729,11 @@ func portText(port int) string {
 		return "安装时随机生成"
 	}
 	return strconv.Itoa(port)
+}
+
+func enabledText(enabled bool) string {
+	if enabled {
+		return "已开启"
+	}
+	return "已关闭"
 }

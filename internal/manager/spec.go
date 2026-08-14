@@ -13,7 +13,7 @@ type componentSpec struct {
 	binaries   []string
 	assetName  func(version, arch string) string
 	config     func(dataDir string, port int) string
-	unit       func(mtls bool, port int) string
+	unit       func(mtls, remoteWrite bool, port int) string
 	validate   func(ctx context.Context, configPath string) error
 }
 
@@ -79,10 +79,14 @@ scrape_configs:
 `, port)
 }
 
-func prometheusUnit(mtls bool, port int) string {
+func prometheusUnit(mtls, remoteWrite bool, port int) string {
 	webConfigArgument := ""
+	remoteWriteArgument := ""
 	if mtls {
 		webConfigArgument = " --web.config.file=/etc/prometheus/web.yml"
+	}
+	if remoteWrite {
+		remoteWriteArgument = " --web.enable-remote-write-receiver"
 	}
 	return fmt.Sprintf(`[Unit]
 Description=Prometheus monitoring server
@@ -93,7 +97,7 @@ After=network-online.target
 User=prometheus
 Group=prometheus
 Type=simple
-ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus --web.listen-address=0.0.0.0:%d --web.enable-remote-write-receiver%s
+ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus --web.listen-address=0.0.0.0:%d%s%s
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5s
@@ -105,7 +109,7 @@ ReadWritePaths=/var/lib/prometheus
 
 [Install]
 WantedBy=multi-user.target
-`, port, webConfigArgument)
+`, port, remoteWriteArgument, webConfigArgument)
 }
 
 func lokiConfig(dataDir string, port int) string {
@@ -141,7 +145,7 @@ limits_config:
 `, port, dataDir, dataDir, dataDir)
 }
 
-func lokiUnit(mtls bool, port int) string {
+func lokiUnit(mtls, _ bool, port int) string {
 	tlsArguments := ""
 	if mtls {
 		tlsArguments = " -server.http-tls-cert-path=/etc/loki/tls/server.crt -server.http-tls-key-path=/etc/loki/tls/server.key -server.http-tls-client-auth=RequireAndVerifyClientCert -server.http-tls-ca-path=/etc/loki/tls/client-ca.crt"

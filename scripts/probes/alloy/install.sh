@@ -36,11 +36,14 @@ Grafana Alloy 指标与日志统一探针安装脚本。
   sudo ./install.sh uninstall   # 保留配置和数据
   sudo ./install.sh purge       # 删除配置和数据
 
-安装时会交互询问 Prometheus、Loki 地址和各自的 mTLS 客户端证书。
+安装时会交互询问 Prometheus、Loki 地址和 mTLS 客户端证书。
 URL 仅填写服务根地址，脚本会自动追加写入路径。
 Alloy 已内置 Unix 主机指标采集；不要在同一服务器重复安装 node_exporter。
 
-中心端启用 mTLS 时，分别提供客户端证书：
+安全要求：Prometheus 远程写入只在中心端启用 mTLS 后开放，因此
+Prometheus 地址必须使用 https:// 并提供客户端证书；Loki mTLS 可选。
+
+无人值守安装需要提供 Prometheus 客户端证书；Loki 启用 mTLS 时也需提供：
   PROMETHEUS_MTLS_CA_FILE=/root/monitor-ca.crt
   PROMETHEUS_MTLS_CERT_FILE=/root/alloy-client.crt
   PROMETHEUS_MTLS_KEY_FILE=/root/alloy-client.key
@@ -82,8 +85,7 @@ prompt_required() {
   local value="${!variable_name:-}"
   [[ -n "${value}" ]] && return 0
   if ! detect_interactive_device; then
-    printf -v "${variable_name}" '%s' "${default_value}"
-    return 0
+	die "无人值守安装缺少必填变量 ${variable_name}"
   fi
   while [[ -z "${value}" ]]; do
     printf '❯ %s： ' "${prompt}" >&2
@@ -137,20 +139,29 @@ valid_backend_url() {
 prompt_backend_url() {
   local variable_name="$1"
   local label="$2"
+  local required_scheme="${3:-}"
   local value="${!variable_name:-}"
   if [[ -n "${value}" ]]; then
     return 0
   fi
   set_interactive_device
   while true; do
-    printf '❯ %s 根地址（例如 http://10.0.0.10:24567，端口以中心显示为准）： ' "${label}" >&2
+    if [[ "${required_scheme}" == "https" ]]; then
+      printf '❯ %s HTTPS 根地址（例如 https://10.0.0.10:24567，端口以中心显示为准）： ' "${label}" >&2
+    else
+      printf '❯ %s 根地址（例如 http://10.0.0.10:24567，端口以中心显示为准）： ' "${label}" >&2
+    fi
     IFS= read -r value <"${INTERACTIVE_DEVICE}" || die "读取输入失败"
     value="${value%/}"
-    if valid_backend_url "${value}"; then
+    if valid_backend_url "${value}" && { [[ -z "${required_scheme}" ]] || [[ "${value}" == "${required_scheme}://"* ]]; }; then
       printf -v "${variable_name}" '%s' "${value}"
       return 0
     fi
-    info "地址格式无效，请输入 http://主机:端口 或 https://主机:端口"
+    if [[ "${required_scheme}" == "https" ]]; then
+      info "Prometheus 远程写入强制使用 mTLS，请输入 https://主机:端口"
+    else
+      info "地址格式无效，请输入 http://主机:端口 或 https://主机:端口"
+    fi
   done
 }
 
@@ -158,6 +169,7 @@ collect_backend_mtls_settings() {
   local backend="$1"
   local label="$2"
   local url="$3"
+  local required="${4:-0}"
   local ca_variable="${backend}_MTLS_CA_FILE"
   local cert_variable="${backend}_MTLS_CERT_FILE"
   local key_variable="${backend}_MTLS_KEY_FILE"
@@ -168,13 +180,18 @@ collect_backend_mtls_settings() {
   host="${host%%:*}"
 
   if [[ -z "${configured}" ]]; then
-    if ! detect_interactive_device; then
-      printf -v "${enabled_variable}" '%s' 0
-      return 0
-    fi
-    if ! ask_yes_no "${label} 是否启用 mTLS 客户端证书认证"; then
-      printf -v "${enabled_variable}" '%s' 0
-      return 0
+    if [[ "${required}" == "1" ]]; then
+      info "Prometheus 远程写入要求 mTLS，接下来填写 Alloy 客户端证书"
+      detect_interactive_device || die "Prometheus 远程写入要求 mTLS；无人值守安装必须提供完整的 Prometheus 客户端证书变量"
+    else
+      if ! detect_interactive_device; then
+        printf -v "${enabled_variable}" '%s' 0
+        return 0
+      fi
+      if ! ask_yes_no "${label} 是否启用 mTLS 客户端证书认证"; then
+        printf -v "${enabled_variable}" '%s' 0
+        return 0
+      fi
     fi
   fi
 
@@ -187,9 +204,9 @@ collect_backend_mtls_settings() {
 
 collect_install_settings() {
   info "开始配置 Alloy 数据接收中心"
-  prompt_backend_url PROMETHEUS_URL Prometheus
+  prompt_backend_url PROMETHEUS_URL Prometheus https
   prompt_backend_url LOKI_URL Loki
-  collect_backend_mtls_settings PROMETHEUS Prometheus "${PROMETHEUS_URL}"
+  collect_backend_mtls_settings PROMETHEUS Prometheus "${PROMETHEUS_URL}" 1
   collect_backend_mtls_settings LOKI Loki "${LOKI_URL}"
 }
 
@@ -200,6 +217,8 @@ validate_backend_urls() {
   [[ "${LOKI_URL}" =~ ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?$ ]] || die "LOKI_URL 格式无效或包含不安全字符"
   PROMETHEUS_URL="${PROMETHEUS_URL%/}"
   LOKI_URL="${LOKI_URL%/}"
+  [[ "${PROMETHEUS_MTLS_ENABLED}" == "1" ]] || die "Prometheus 远程写入要求启用 mTLS"
+  [[ "${PROMETHEUS_URL}" == https://* ]] || die "Prometheus 远程写入要求使用 HTTPS 地址"
 
   validate_mtls_settings prometheus "${PROMETHEUS_URL}" \
     "${PROMETHEUS_MTLS_CA_FILE}" "${PROMETHEUS_MTLS_CERT_FILE}" "${PROMETHEUS_MTLS_KEY_FILE}" "${PROMETHEUS_TLS_SERVER_NAME}"

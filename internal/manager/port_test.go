@@ -58,7 +58,7 @@ func TestChangeListenPortUpdatesManagedFiles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(unitPath, []byte(spec.unit(false, oldPort)), 0644); err != nil {
+			if err := os.WriteFile(unitPath, []byte(spec.unit(false, false, oldPort)), 0644); err != nil {
 				t.Fatal(err)
 			}
 			if err := mgr.ChangeListenPort(context.Background(), name, newPort); err != nil {
