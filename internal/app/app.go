@@ -58,10 +58,10 @@ func (a *App) Run(ctx context.Context) error {
 			access = "管理模式"
 		}
 		a.ui.Home("服务器可观测性控制台", access, privileged)
-		a.ui.Option("1", "指标中心", a.statusBadge(statuses["prometheus"]))
-		a.ui.Option("2", "日志中心", a.statusBadge(statuses["loki"]))
 		ready := readyCount(statuses)
-		a.ui.Option("3", "部署监控栈", a.ui.Badge(fmt.Sprintf("就绪 %d/2", ready), ready == 2))
+		a.ui.Option("1", "部署监控栈", a.ui.Badge(fmt.Sprintf("就绪 %d/2", ready), ready == 2))
+		a.ui.Option("2", "指标中心", a.statusBadge(statuses["prometheus"]))
+		a.ui.Option("3", "日志中心", a.statusBadge(statuses["loki"]))
 		a.ui.Option("4", "探针接入", a.ui.Badge("Shell", true))
 		a.ui.Option("5", "管理接口", a.ui.Badge("HTTP API", true))
 		a.ui.ExitOption("退出")
@@ -75,15 +75,15 @@ func (a *App) Run(ctx context.Context) error {
 		case "0", "q", "exit":
 			return nil
 		case "1":
+			a.deployStack(ctx)
+		case "2":
 			if err := a.componentMenu(ctx, componentViews["prometheus"]); err != nil {
 				return err
 			}
-		case "2":
+		case "3":
 			if err := a.componentMenu(ctx, componentViews["loki"]); err != nil {
 				return err
 			}
-		case "3":
-			a.deployStack(ctx)
 		case "4":
 			if err := a.probeMenu(); err != nil {
 				return err
@@ -231,13 +231,14 @@ func (a *App) probeMenu() error {
 	for {
 		a.ui.Clear()
 		a.ui.Title("探针接入")
-		a.ui.Card(ui.Neutral, "被监控服务器使用独立 Shell 脚本接入",
-			ui.Field{Label: "指标探针", Value: "node_exporter", Detail: "向 Prometheus 暴露 CPU、内存、磁盘和网络指标"},
-			ui.Field{Label: "日志探针", Value: "Grafana Alloy", Detail: "读取系统日志并发送至 Loki"},
+		a.ui.Card(ui.Neutral, "根据项目需求选择一种 Shell 探针方案",
+			ui.Field{Label: "轻量指标", Value: "node_exporter", Detail: "只采集主机指标，适合不需要日志的项目"},
+			ui.Field{Label: "统一采集", Value: "Grafana Alloy", Detail: "同时发送主机指标和系统日志，无需再装 node_exporter"},
+			ui.Field{Label: "注意", Value: "两种方案不要在同一服务器重复安装"},
 		)
 		a.ui.Blank()
-		a.ui.Option("1", "查看指标探针命令", "")
-		a.ui.Option("2", "查看日志探针命令", "")
+		a.ui.Option("1", "轻量指标探针", a.ui.Badge("node_exporter", true))
+		a.ui.Option("2", "指标与日志统一探针", a.ui.Badge("Alloy", true))
 		a.ui.ExitOption("返回总览")
 		a.ui.Blank()
 		choice, err := a.ui.Ask("请选择")
@@ -253,8 +254,9 @@ func (a *App) probeMenu() error {
 			)
 			a.ui.Pause()
 		case "2":
-			a.ui.Card(ui.Neutral, "Alloy 安装命令",
-				ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/scripts/probes/alloy/install.sh | sudo LOKI_URL=http://中心服务器:3100 bash"},
+			a.ui.Card(ui.Neutral, "Grafana Alloy 统一探针安装命令",
+				ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/scripts/probes/alloy/install.sh | sudo PROMETHEUS_URL=http://中心服务器:9090 LOKI_URL=http://中心服务器:3100 bash"},
+				ui.Field{Label: "采集内容", Value: "CPU、内存、磁盘、网络指标与 systemd journal 日志"},
 			)
 			a.ui.Pause()
 		default:

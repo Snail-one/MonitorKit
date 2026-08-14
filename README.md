@@ -16,7 +16,7 @@ Snailbash/
 ├── deploy/systemd/                # 中心端 systemd unit
 ├── scripts/probes/
 │   ├── node_exporter/install.sh   # 主机指标探针
-│   └── alloy/install.sh           # Loki 日志探针
+│   └── alloy/install.sh           # 指标与日志统一探针
 └── docs/architecture.md           # 扩展规范
 ```
 
@@ -123,12 +123,14 @@ node_exporter 指标探针：
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/scripts/probes/node_exporter/install.sh | sudo bash
 ```
 
-Grafana Alloy 日志探针（将地址替换为中心服务器 Loki 地址）：
+Grafana Alloy 指标与日志统一探针：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Snail-one/Snailbash/main/scripts/probes/alloy/install.sh | \
-  sudo LOKI_URL=http://10.0.0.10:3100 bash
+  sudo PROMETHEUS_URL=http://10.0.0.10:9090 LOKI_URL=http://10.0.0.10:3100 bash
 ```
+
+两种探针按项目需求二选一：只需要主机指标时安装 node_exporter；同时需要指标和日志时安装 Alloy。Alloy 已内置 Unix 主机指标采集，同一服务器不应再重复安装 node_exporter。
 
 探针卸载：
 

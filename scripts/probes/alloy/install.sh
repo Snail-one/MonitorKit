@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Grafana Alloy and configure it to forward system logs to Loki.
+# Install Grafana Alloy as a unified metrics and logs probe.
 
 set -Eeuo pipefail
 
@@ -8,6 +8,7 @@ readonly CONFIG_FILE="${CONFIG_DIR}/config.alloy"
 readonly DATA_DIR="/var/lib/alloy"
 
 ACTION="${1:-install}"
+PROMETHEUS_URL="${PROMETHEUS_URL:-}"
 LOKI_URL="${LOKI_URL:-}"
 
 info() { printf '[信息] %s\n' "$*"; }
@@ -15,14 +16,16 @@ die() { printf '[错误] %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-Grafana Alloy 日志探针安装脚本。
+Grafana Alloy 指标与日志统一探针安装脚本。
 
 用法：
-  sudo LOKI_URL=http://中心服务器:3100 ./install.sh
+  sudo PROMETHEUS_URL=http://中心服务器:9090 \
+       LOKI_URL=http://中心服务器:3100 ./install.sh
   sudo ./install.sh uninstall   # 保留配置和数据
   sudo ./install.sh purge       # 删除配置和数据
 
-LOKI_URL 仅填写 Loki 服务根地址，脚本会追加 /loki/api/v1/push。
+PROMETHEUS_URL 和 LOKI_URL 仅填写服务根地址，脚本会自动追加写入路径。
+Alloy 已内置 Unix 主机指标采集；不要在同一服务器重复安装 node_exporter。
 EOF
 }
 
@@ -30,9 +33,12 @@ require_root() {
   [[ "${EUID}" -eq 0 ]] || die "请使用 root 或 sudo 运行"
 }
 
-validate_loki_url() {
+validate_backend_urls() {
+  [[ -n "${PROMETHEUS_URL}" ]] || die "缺少 PROMETHEUS_URL，例如：http://10.0.0.10:9090"
   [[ -n "${LOKI_URL}" ]] || die "缺少 LOKI_URL，例如：http://10.0.0.10:3100"
-  [[ "${LOKI_URL}" =~ ^https?://[A-Za-z0-9._:[]-]+$ ]] || die "LOKI_URL 格式无效或包含不安全字符"
+  [[ "${PROMETHEUS_URL}" =~ ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?$ ]] || die "PROMETHEUS_URL 格式无效或包含不安全字符"
+  [[ "${LOKI_URL}" =~ ^https?://[A-Za-z0-9._-]+(:[0-9]{1,5})?$ ]] || die "LOKI_URL 格式无效或包含不安全字符"
+  PROMETHEUS_URL="${PROMETHEUS_URL%/}"
   LOKI_URL="${LOKI_URL%/}"
 }
 
@@ -101,6 +107,21 @@ logging {
   level = "info"
 }
 
+prometheus.exporter.unix "host" {
+}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  forward_to      = [prometheus.remote_write.center.receiver]
+  scrape_interval = "15s"
+}
+
+prometheus.remote_write "center" {
+  endpoint {
+    url = "${PROMETHEUS_URL}/api/v1/write"
+  }
+}
+
 loki.source.journal "system" {
   forward_to = [loki.write.center.receiver]
   labels = {
@@ -123,7 +144,7 @@ EOF
 }
 
 install_probe() {
-  validate_loki_url
+  validate_backend_urls
   install_package
   getent group systemd-journal >/dev/null 2>&1 && usermod -aG systemd-journal alloy
   getent group adm >/dev/null 2>&1 && usermod -aG adm alloy
@@ -134,7 +155,7 @@ install_probe() {
     systemctl --no-pager --full status alloy.service || true
     die "alloy.service 启动失败"
   }
-  info "Alloy 已安装，日志发送至 ${LOKI_URL}"
+  info "Alloy 已安装，指标发送至 ${PROMETHEUS_URL}，日志发送至 ${LOKI_URL}"
 }
 
 uninstall_probe() {

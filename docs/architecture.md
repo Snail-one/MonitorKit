@@ -30,6 +30,10 @@ API 路由以 `{name}` 作为组件参数，因此新增组件无需复制 HTTP 
 
 每个探针必须位于 `scripts/probes/<name>/install.sh`，脚本应至少支持安装、更新、`uninstall` 和 `purge`。探针脚本自行处理架构检测、校验、systemd 服务和重复执行，不依赖中心端 Go 二进制。
 
+- node_exporter 是只采集主机指标的轻量方案。
+- Grafana Alloy 是指标与日志统一采集方案，通过 `prometheus.exporter.unix` 采集主机指标，同时读取 systemd journal。
+- 两种方案在单台被监控服务器上二选一，避免重复上报同一组主机指标。
+
 ## 安全边界
 
 - API 只允许已注册组件和预定义动作，不接收任意 Shell 命令。

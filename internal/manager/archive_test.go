@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -114,5 +115,11 @@ func TestValidVersion(t *testing.T) {
 		if got := validVersion(test.value); got != test.want {
 			t.Errorf("validVersion(%q) = %t, want %t", test.value, got, test.want)
 		}
+	}
+}
+
+func TestPrometheusAcceptsAlloyRemoteWrite(t *testing.T) {
+	if !strings.Contains(prometheusUnit(), "--web.enable-remote-write-receiver") {
+		t.Fatal("Prometheus unit does not enable the remote-write receiver")
 	}
 }
