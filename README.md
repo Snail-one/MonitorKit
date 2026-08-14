@@ -122,6 +122,14 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/p
 
 两种探针按项目需求二选一：只需要主机指标时安装 node_exporter；同时需要指标和日志时安装 Alloy。Alloy 已内置 Unix 主机指标采集，同一服务器不应再重复安装 node_exporter。
 
+“探针接入”菜单提供两个中心端操作：
+
+- “添加探针”可以添加其他服务器上的 node_exporter。填写名称、IP/域名、端口和 HTTP/mTLS 连接方式后，MonitorKit 会在 `prometheus.yml` 的受管区域生成独立 scrape job，使用 `promtool` 校验并 reload。mTLS 模式还会逐个编辑和校验 node_exporter 服务端 CA、Prometheus 客户端证书及私钥。
+- “管理当前探针”读取 `/etc/prometheus/probes/inventory.json`，可以修改目标名称、地址、端口和 TLS server_name，启停抓取、更新 mTLS 证书或删除接入配置。删除只停止 Prometheus 抓取，不会远程卸载 node_exporter。
+- Alloy 主动推送，不加入 Prometheus 抓取目标清单。Alloy 安装卡片会直接显示当前 Prometheus、Loki 根地址、随机监听端口和接收状态，脚本交互时可照此填写。
+
+Prometheus 生成的 node_exporter mTLS 抓取配置使用官方 [`scrape_config`](https://prometheus.io/docs/prometheus/latest/configuration/configuration/) 的 `static_configs` 和 `tls_config`（`ca_file`、`cert_file`、`key_file`、`server_name`）。每个 mTLS 探针独立保存证书，允许不同服务器使用不同 CA 或 server_name。
+
 ## 中心组件配置管理
 
 Prometheus 和 Loki 的管理菜单均提供“配置管理”：

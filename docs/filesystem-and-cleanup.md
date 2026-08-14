@@ -56,6 +56,12 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 ├── listen.port             # 首次安装生成，记录当前随机或自定义监听端口
 ├── remote-write.enabled    # 仅在远程写入接收开关开启时存在
 ├── web.yml                 # 启用 mTLS 时的受管 Web 配置
+├── probes/
+│   ├── inventory.json         # node_exporter 接入清单、启停状态和目标地址
+│   └── <probe-id>/            # 对应探针使用 mTLS 时
+│       ├── ca.crt              # node_exporter 服务端 CA
+│       ├── client.crt          # Prometheus 客户端证书
+│       └── client.key          # Prometheus 客户端私钥
 └── tls/                    # 启用或曾启用 mTLS 时
     ├── server.crt
     ├── server.key
@@ -69,6 +75,8 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 ```
 
 首次安装从 `10000-59999` 中选择一个当时可用的随机端口。更新会读取 `listen.port` 并保持端口不变，同时替换二进制和 systemd unit；已经存在的 `prometheus.yml` 会保留，不会被默认配置覆盖。存在 `mtls.enabled` 时，新 unit 会继续引用 `web.yml`，不会在更新后退回 HTTP。远程写入默认关闭，只有 mTLS 已启用且存在 `remote-write.enabled` 时，unit 才会开放 `/api/v1/write`；关闭 mTLS 会同步删除该开关标记。
+
+添加、修改、启停或删除 node_exporter 接入时，MonitorKit 会更新 `inventory.json` 和 `prometheus.yml` 中带有 `BEGIN/END MONITORKIT MANAGED PROBES` 标记的受管 scrape job。新配置只有通过 `promtool` 校验并成功 reload/restart 后才生效，失败会恢复清单和主配置。删除接入配置会删除该探针在中心端保存的 mTLS 文件，但不会连接远程服务器或卸载远程 node_exporter。
 
 从配置菜单直接编辑 `prometheus.yml` 时，原配置内容只在操作期间保存。新配置通过 `promtool` 校验后执行 reload；失败时即时清理无效修改并恢复原配置，不生成残留文件。配置操作及安装/更新会删除旧版本遗留的同名 `.rejected-*` 普通文件。
 
