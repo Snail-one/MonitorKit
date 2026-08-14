@@ -25,7 +25,7 @@ MonitorKit/
 └── docs/architecture.md           # 扩展规范
 ```
 
-详细的分层和扩展方式见 [架构文档](docs/architecture.md)。
+详细的分层和扩展方式见 [架构文档](docs/architecture.md)。安装会写入哪些系统文件、各卸载模式保留哪些内容，见 [文件写入与清理边界](docs/filesystem-and-cleanup.md)。
 
 ## 构建中心端
 
@@ -72,7 +72,7 @@ sudo snailmon uninstall
 curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/install.sh | sudo sh -s -- --uninstall
 ```
 
-自身卸载不会删除 Prometheus、Loki、配置或监控数据。完整发布流程、指定版本安装和安全校验说明见 [发布文档](docs/release.md)。
+自身卸载不会删除 Prometheus、Loki、配置或监控数据。完整发布流程、指定版本安装和安全校验说明见 [发布文档](docs/release.md)，所有保留项见 [清理边界文档](docs/filesystem-and-cleanup.md)。
 
 直接使用 CLI 安装中心组件：
 

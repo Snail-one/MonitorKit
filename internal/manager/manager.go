@@ -249,10 +249,15 @@ func (m *Manager) requireSystemAccess() error {
 }
 
 func ensureSystemUser(ctx context.Context, name string) error {
+	if exec.CommandContext(ctx, "getent", "group", name).Run() != nil {
+		if err := run(ctx, "groupadd", "--system", name); err != nil {
+			return err
+		}
+	}
 	if exec.CommandContext(ctx, "id", "-u", name).Run() == nil {
 		return nil
 	}
-	return run(ctx, "useradd", "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", name)
+	return run(ctx, "useradd", "--system", "--gid", name, "--no-create-home", "--shell", "/usr/sbin/nologin", name)
 }
 
 func run(ctx context.Context, name string, args ...string) error {
