@@ -191,8 +191,9 @@ fi
 
 if ! grep -qF 'source_labels = ["__journal__systemd_unit"]' "${INSTALLER}" || \
    ! grep -qF 'target_label  = "unit"' "${INSTALLER}" || \
+   ! grep -qF 'source_labels = ["__journal_syslog_identifier"]' "${INSTALLER}" || \
    ! grep -qF 'max_age       = "7h"' "${INSTALLER}"; then
-  printf 'Alloy 默认 journal 配置没有保留服务名标签或启动回读窗口\n' >&2
+  printf 'Alloy 默认 journal 配置没有按官方字段名保留服务标签或启动回读窗口\n' >&2
   exit 1
 fi
 

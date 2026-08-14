@@ -1179,7 +1179,7 @@ loki.relabel "journal" {
   }
 
   rule {
-    source_labels = ["__journal__syslog_identifier"]
+    source_labels = ["__journal_syslog_identifier"]
     target_label  = "ident"
   }
 }
