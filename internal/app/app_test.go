@@ -142,6 +142,15 @@ func TestConfigurationMenuShowsPortAndMTLSStateBadges(t *testing.T) {
 	}
 }
 
+func TestProbeEnabledTextMatchesLiveBadgeLabels(t *testing.T) {
+	if got := probeEnabledText(true); got != "已启用" {
+		t.Fatalf("enabled = %q", got)
+	}
+	if got := probeEnabledText(false); got != "已停用" {
+		t.Fatalf("disabled = %q", got)
+	}
+}
+
 func TestComponentAddressFollowsMTLSState(t *testing.T) {
 	if got := componentAddress(false, 23100); got != "http://服务器地址:23100" {
 		t.Fatalf("plain address = %q", got)

@@ -919,11 +919,7 @@ func (a *App) manageProbesMenu(ctx context.Context) error {
 			return nil
 		}
 		for index, probe := range probes {
-			hint := "已停用"
-			if probe.Enabled {
-				hint = "已启用"
-			}
-			a.ui.Option(strconv.Itoa(index+1), probe.Name+" · "+probeDisplayTarget(probe), hint)
+			a.ui.OptionLive(strconv.Itoa(index+1), probe.Name+" · "+probeDisplayTarget(probe), probeEnabledText(probe.Enabled), probe.Enabled)
 		}
 		a.ui.ExitOption("返回探针接入")
 		a.ui.Blank()
@@ -1233,4 +1229,11 @@ func enabledText(enabled bool) string {
 		return "已开启"
 	}
 	return "已关闭"
+}
+
+func probeEnabledText(enabled bool) string {
+	if enabled {
+		return "已启用"
+	}
+	return "已停用"
 }
