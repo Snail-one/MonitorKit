@@ -79,39 +79,6 @@ scrape_configs:
 `, port)
 }
 
-func prometheusUnit(mtls, remoteWrite bool, port int) string {
-	webConfigArgument := ""
-	remoteWriteArgument := ""
-	if mtls {
-		webConfigArgument = " --web.config.file=/etc/prometheus/web.yml"
-	}
-	if remoteWrite {
-		remoteWriteArgument = " --web.enable-remote-write-receiver"
-	}
-	return fmt.Sprintf(`[Unit]
-Description=Prometheus monitoring server
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-User=prometheus
-Group=prometheus
-Type=simple
-ExecStart=/usr/local/bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/var/lib/prometheus --web.listen-address=0.0.0.0:%d%s%s
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=on-failure
-RestartSec=5s
-NoNewPrivileges=true
-ProtectSystem=full
-ProtectHome=true
-PrivateTmp=true
-ReadWritePaths=/var/lib/prometheus
-
-[Install]
-WantedBy=multi-user.target
-`, port, remoteWriteArgument, webConfigArgument)
-}
-
 func lokiConfig(dataDir string, port int) string {
 	return fmt.Sprintf(`auth_enabled: false
 

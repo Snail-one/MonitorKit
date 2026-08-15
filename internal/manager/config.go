@@ -20,6 +20,8 @@ type Configuration struct {
 	MTLSEnabled        bool
 	ListenPort         int
 	RemoteWriteEnabled bool
+	LogSettings        LokiLogSettings
+	MetricSettings     PrometheusStorageSettings
 }
 
 type TLSFile struct {
@@ -50,6 +52,20 @@ func (m *Manager) Configuration(name string) (Configuration, error) {
 	if err != nil {
 		return Configuration{}, err
 	}
+	var logSettings LokiLogSettings
+	var metricSettings PrometheusStorageSettings
+	if name == "loki" {
+		logSettings, err = m.lokiLogSettingsLocked()
+		if err != nil {
+			return Configuration{}, err
+		}
+	}
+	if name == "prometheus" {
+		metricSettings, err = m.prometheusStorageSettingsLocked()
+		if err != nil {
+			return Configuration{}, err
+		}
+	}
 	return Configuration{
 		Name:               name,
 		Path:               m.path("/etc/" + name + "/" + name + ".yml"),
@@ -57,6 +73,8 @@ func (m *Manager) Configuration(name string) (Configuration, error) {
 		MTLSEnabled:        mtlsEnabledLocked(m, name),
 		ListenPort:         listenPort,
 		RemoteWriteEnabled: managedRemoteWriteEnabled(m, name),
+		LogSettings:        logSettings,
+		MetricSettings:     metricSettings,
 	}, nil
 }
 
@@ -236,7 +254,7 @@ func (m *Manager) ConfigureMTLS(ctx context.Context, name string, edit TLSEditFu
 			return rollback(err, false)
 		}
 	}
-	if err := atomicWrite(unitPath, []byte(spec.unit(true, remoteWriteEnabledLocked(m), listenPort)), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(m.componentUnitLocked(spec, true, remoteWriteEnabledLocked(m), listenPort)), 0644); err != nil {
 		return rollback(err, false)
 	}
 	if err := atomicWrite(markerPath, []byte("enabled\n"), 0640); err != nil {
@@ -273,7 +291,7 @@ func (m *Manager) DisableMTLS(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := atomicWrite(unitPath, []byte(spec.unit(false, remoteWriteEnabled, listenPort)), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(m.componentUnitLocked(spec, false, remoteWriteEnabled, listenPort)), 0644); err != nil {
 		return err
 	}
 	if err := os.Remove(markerPath); err != nil && !errors.Is(err, os.ErrNotExist) {

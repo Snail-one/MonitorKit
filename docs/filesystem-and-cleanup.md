@@ -26,6 +26,7 @@
 ├── prometheus.yml
 ├── listen.port
 ├── remote-write.enabled                 # 仅开启远程写入接收时存在
+├── storage.settings                     # 仅自定义过指标保留或磁盘上限时存在
 ├── web.yml                              # 配置过 Prometheus mTLS 后存在
 ├── tls/
 │   ├── client-ca.crt
@@ -149,6 +150,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 ├── prometheus.yml
 ├── listen.port             # 首次安装生成，记录当前随机或自定义监听端口
 ├── remote-write.enabled    # 仅在远程写入接收开关开启时存在
+├── storage.settings        # 仅自定义过指标保留或磁盘上限时存在
 ├── web.yml                 # 启用 mTLS 时的受管 Web 配置
 ├── probes/
 │   ├── inventory.json         # node_exporter 接入清单、启停状态和目标地址
@@ -170,7 +172,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 
 `/var/lib/prometheus/` 是完整的数据边界。Prometheus 会在其中生成 TSDB 块目录、`wal/`、`chunks_head/`、`queries.active`、`lock` 等运行时内容；具体文件会随 Prometheus 版本和数据状态变化。
 
-首次安装从 `10000-59999` 中选择一个当时可用的随机端口。更新会读取 `listen.port` 并保持端口不变，同时替换二进制和 systemd unit；已经存在的 `prometheus.yml` 会保留，不会被默认配置覆盖。存在 `mtls.enabled` 时，新 unit 会继续引用 `web.yml`，不会在更新后退回 HTTP。远程写入默认关闭，存在 `remote-write.enabled` 时 unit 会开放 `/api/v1/write`，该开关与 mTLS 独立：HTTP 模式允许开启但交互界面会警告明文风险；关闭 mTLS 不再删除远程写入标记。
+首次安装从 `10000-59999` 中选择一个当时可用的随机端口。更新会读取 `listen.port` 并保持端口不变，同时替换二进制和 systemd unit；已经存在的 `prometheus.yml` 会保留，不会被默认配置覆盖。存在 `mtls.enabled` 时，新 unit 会继续引用 `web.yml`，不会在更新后退回 HTTP。远程写入默认关闭，存在 `remote-write.enabled` 时 unit 会开放 `/api/v1/write`，该开关与 mTLS 独立：HTTP 模式允许开启但交互界面会警告明文风险；关闭 mTLS 不再删除远程写入标记。指标保留默认使用 Prometheus 上游的 15 天、无磁盘上限；“指标设置”会把自定义时间或磁盘上限写入 `storage.settings` 和 unit 的 `--storage.tsdb.retention.time` / `--storage.tsdb.retention.size`。更新、改端口、开关 mTLS 或远程写入都会读回该文件，不会丢掉自定义保留。恢复默认会删除 `storage.settings` 并去掉这些参数。
 
 添加、修改、启停或删除 node_exporter 接入时，MonitorKit 会更新 `inventory.json` 和 `prometheus.yml` 中带有 `BEGIN/END MONITORKIT MANAGED PROBES` 标记的受管 scrape job。新配置只有通过 `promtool` 校验并成功 reload/restart 后才生效，失败会恢复清单和主配置。删除接入配置会删除该探针在中心端保存的 mTLS 文件，但不会连接远程服务器或卸载远程 node_exporter。
 
@@ -219,6 +221,8 @@ prometheus 用户与组
 首次安装从 `10000-59999` 中选择一个当时可用的随机端口。更新会读取 `listen.port` 并保持端口不变，同时替换二进制和 systemd unit；已经存在的 `loki.yml` 会保留。存在 `mtls.enabled` 时，新 unit 会继续带有 Loki HTTPS 与客户端证书验证参数。
 
 从配置菜单直接编辑 `loki.yml` 时，会在内存中保存原内容，再使用 Loki 的 `-verify-config=true` 校验并重启。校验或启动失败时即时清理无效修改并恢复原配置，不保留拒绝文件。
+
+“日志设置”只改写 `loki.yml` 中的 `limits_config` 与 `compactor`，不另建开关文件。首次安装默认不写保留期。设置保留期后会启用 Compactor，并在 `/var/lib/loki/compactor/`（或配置中的 `path_prefix/compactor`）写入压缩与删除标记；恢复默认会关掉过期删除，但已有数据目录仍保留到普通卸载或 `--purge`。
 
 普通卸载会删除二进制和 unit，并停止、禁用服务，但保留：
 

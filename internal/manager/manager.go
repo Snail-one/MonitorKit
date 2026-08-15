@@ -183,7 +183,7 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 	unitPath := filepath.Join(unitDir, name+".service")
 	mtlsEnabled := mtlsEnabledLocked(m, name)
 	remoteWriteEnabled := managedRemoteWriteEnabled(m, name)
-	if err := atomicWrite(unitPath, []byte(spec.unit(mtlsEnabled, remoteWriteEnabled, listenPort)), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(m.componentUnitLocked(spec, mtlsEnabled, remoteWriteEnabled, listenPort)), 0644); err != nil {
 		return Status{}, fmt.Errorf("写入 systemd 单元：%w", err)
 	}
 

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Snail-one/MonitorKit/internal/manager"
 	"github.com/Snail-one/MonitorKit/internal/ui"
@@ -117,7 +118,13 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 			ui.Field{Label: "服务地址", Value: componentAddress(configuration.MTLSEnabled, configuration.ListenPort)},
 		}
 		if component.name == "prometheus" {
-			fields = append(fields, ui.Field{Label: "远程写入", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "接收地址：/api/v1/write；mTLS 推荐，HTTP 需确认风险"})
+			fields = append(fields,
+				ui.Field{Label: "远程写入", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "接收地址：/api/v1/write；mTLS 推荐，HTTP 需确认风险"},
+				ui.Field{Label: "指标设置", Value: metricSettingsSummary(configuration.MetricSettings), Detail: metricSettingsDetail(configuration.MetricSettings)},
+			)
+		}
+		if component.name == "loki" {
+			fields = append(fields, ui.Field{Label: "日志设置", Value: logSettingsSummary(configuration.LogSettings), Detail: logSettingsDetail(configuration.LogSettings)})
 		}
 		fields = append(fields, ui.Field{Label: "传输安全", Value: transport})
 		a.ui.Card(ui.Neutral, component.description, fields...)
@@ -227,7 +234,13 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 			{Label: "证书目录", Value: configuration.TLSDir},
 		}
 		if component.name == "prometheus" {
-			configFields = append(configFields, ui.Field{Label: "远程写入接收", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "独立开关；HTTP 模式开启时会显示明文传输警告"})
+			configFields = append(configFields,
+				ui.Field{Label: "远程写入接收", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "独立开关；HTTP 模式开启时会显示明文传输警告"},
+				ui.Field{Label: "指标设置", Value: metricSettingsSummary(configuration.MetricSettings), Detail: metricSettingsDetail(configuration.MetricSettings)},
+			)
+		}
+		if component.name == "loki" {
+			configFields = append(configFields, ui.Field{Label: "日志设置", Value: logSettingsSummary(configuration.LogSettings), Detail: logSettingsDetail(configuration.LogSettings)})
 		}
 		a.ui.Card(ui.Neutral, component.label+"配置", configFields...)
 		a.ui.Blank()
@@ -242,16 +255,20 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 			if configuration.RemoteWriteEnabled {
 				remoteWriteLabel = "关闭远程写入"
 			}
-			a.ui.OptionState("6", remoteWriteLabel, configuration.RemoteWriteEnabled)
+			a.ui.OptionLive("6", "指标设置", metricSettingsBadge(configuration.MetricSettings), !configuration.MetricSettings.IsDefault())
+			a.ui.OptionState("7", remoteWriteLabel, configuration.RemoteWriteEnabled)
+		}
+		if component.name == "loki" {
+			a.ui.OptionLive("6", "日志设置", logRetentionBadge(configuration.LogSettings), configuration.LogSettings.Retention > 0)
 		}
 		if configuration.MTLSEnabled && component.name == "prometheus" {
 			hint := "保留证书"
 			if configuration.RemoteWriteEnabled {
 				hint = "远程写入转为 HTTP"
 			}
-			a.ui.Option("7", "关闭 mTLS", hint)
+			a.ui.Option("8", "关闭 mTLS", hint)
 		} else if configuration.MTLSEnabled {
-			a.ui.Option("6", "关闭 mTLS", "保留证书")
+			a.ui.Option("7", "关闭 mTLS", "保留证书")
 		}
 		a.ui.ExitOption("返回" + component.label)
 		a.ui.Blank()
@@ -274,6 +291,20 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		case "5":
 			a.configureComponentMTLS(ctx, component)
 		case "6":
+			switch component.name {
+			case "prometheus":
+				if err := a.prometheusMetricSettingsMenu(ctx, component); err != nil {
+					return err
+				}
+			case "loki":
+				if err := a.lokiLogSettingsMenu(ctx, component); err != nil {
+					return err
+				}
+			default:
+				a.ui.InvalidChoice()
+				a.ui.Pause()
+			}
+		case "7":
 			if component.name == "prometheus" {
 				a.toggleRemoteWrite(ctx, component, configuration)
 			} else if configuration.MTLSEnabled {
@@ -282,7 +313,7 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 				a.ui.InvalidChoice()
 				a.ui.Pause()
 			}
-		case "7":
+		case "8":
 			if component.name == "prometheus" && configuration.MTLSEnabled {
 				a.disableComponentMTLS(ctx, component)
 			} else {
@@ -389,6 +420,424 @@ func (a *App) changeComponentPort(ctx context.Context, component componentView, 
 		ui.Field{Label: "新端口", Value: strconv.Itoa(configuration.ListenPort)},
 		ui.Field{Label: "服务地址", Value: componentAddress(configuration.MTLSEnabled, configuration.ListenPort)},
 		ui.Field{Label: "提示", Value: "请同步更新探针中的中心地址"},
+	)
+	a.ui.Pause()
+}
+
+func (a *App) prometheusMetricSettingsMenu(ctx context.Context, component componentView) error {
+	for {
+		configuration, err := a.manager.Configuration(component.name)
+		if err != nil {
+			return err
+		}
+		settings := configuration.MetricSettings
+		a.ui.Clear()
+		a.ui.Title(component.label, "配置管理", "指标设置")
+		a.ui.Card(ui.Neutral, "当前 Prometheus 存储策略",
+			ui.Field{Label: "保留期", Value: metricRetentionText(settings), Detail: metricRetentionDetail(settings)},
+			ui.Field{Label: "磁盘上限", Value: metricSizeText(settings), Detail: "时间和磁盘上限同时生效，先到的先清理"},
+		)
+		a.ui.Blank()
+		a.ui.OptionLive("1", "设置保留期", metricRetentionBadge(settings), !settings.IsDefault() && (settings.Unlimited || settings.Retention > 0))
+		a.ui.OptionLive("2", "设置磁盘上限", metricSizeText(settings), settings.SizeBytes > 0)
+		a.ui.Option("3", "恢复默认", "15 天，无磁盘上限")
+		a.ui.ExitOption("返回配置管理")
+		a.ui.Blank()
+		choice, err := a.ui.Ask("请选择")
+		if err != nil {
+			return err
+		}
+		switch strings.ToLower(choice) {
+		case "0", "q", "exit":
+			return nil
+		case "1":
+			a.changePrometheusRetention(ctx, settings)
+		case "2":
+			a.changePrometheusSize(ctx, settings)
+		case "3":
+			a.resetPrometheusMetricSettings(ctx)
+		default:
+			a.ui.InvalidChoice()
+			a.ui.Pause()
+		}
+	}
+}
+
+func (a *App) changePrometheusRetention(ctx context.Context, current manager.PrometheusStorageSettings) {
+	a.ui.Clear()
+	a.ui.Title("Prometheus", "配置管理", "指标设置", "保留期")
+	a.ui.Card(ui.Neutral, "按时间删除过期指标",
+		ui.Field{Label: "默认值", Value: "15 天（Prometheus 上游默认）"},
+		ui.Field{Label: "不限制", Value: "只按磁盘上限清理；两者都关闭时磁盘会持续增长"},
+		ui.Field{Label: "当前值", Value: metricRetentionText(current)},
+	)
+	a.ui.Blank()
+	a.ui.Option("1", "7 天", "")
+	a.ui.Option("2", "15 天", "默认")
+	a.ui.Option("3", "30 天", "")
+	a.ui.Option("4", "90 天", "")
+	a.ui.Option("5", "自定义天数", "1-3650")
+	a.ui.Option("6", "不限制", "需配合磁盘上限")
+	a.ui.ExitOption("返回指标设置")
+	a.ui.Blank()
+	choice, err := a.ui.Ask("请选择")
+	if err != nil {
+		return
+	}
+	next := current
+	switch strings.ToLower(choice) {
+	case "0", "q", "exit":
+		return
+	case "1":
+		next.Unlimited = false
+		next.Retention = 7 * 24 * time.Hour
+	case "2":
+		next.Unlimited = false
+		next.Retention = 0
+	case "3":
+		next.Unlimited = false
+		next.Retention = 30 * 24 * time.Hour
+	case "4":
+		next.Unlimited = false
+		next.Retention = 90 * 24 * time.Hour
+	case "5":
+		daysValue, err := a.ui.Ask("保留天数（1-3650）")
+		if err != nil {
+			return
+		}
+		days, err := strconv.Atoi(strings.TrimSpace(daysValue))
+		if err != nil || days < 1 || days > 3650 {
+			a.operationError("无法设置指标保留期", errors.New("请输入 1-3650 之间的整数天数"))
+			return
+		}
+		next.Unlimited = false
+		next.Retention = time.Duration(days) * 24 * time.Hour
+	case "6":
+		next.Unlimited = true
+		next.Retention = 0
+	default:
+		a.ui.InvalidChoice()
+		a.ui.Pause()
+		return
+	}
+	if next.Unlimited && next.SizeBytes == 0 {
+		a.ui.Card(ui.Warning, "关闭时间保留且未设置磁盘上限",
+			ui.Field{Label: "影响", Value: "/var/lib/prometheus 会持续增长，直到磁盘耗尽"},
+			ui.Field{Label: "建议", Value: "同时设置磁盘上限，或保留至少 15 天"},
+		)
+	}
+	prompt := "确认将指标保留期设置为" + metricRetentionText(next)
+	if next.Unlimited {
+		prompt = "确认关闭时间保留并不再按天数删除指标"
+	}
+	confirmed, err := a.ui.Confirm(prompt)
+	if err != nil || !confirmed {
+		return
+	}
+	a.applyPrometheusMetricSettings(ctx, next, "正在更新 Prometheus 指标保留期")
+}
+
+func (a *App) changePrometheusSize(ctx context.Context, current manager.PrometheusStorageSettings) {
+	a.ui.Clear()
+	a.ui.Title("Prometheus", "配置管理", "指标设置", "磁盘上限")
+	a.ui.Card(ui.Neutral, "按占用空间删除最旧指标",
+		ui.Field{Label: "默认值", Value: "不限制"},
+		ui.Field{Label: "当前值", Value: metricSizeText(current)},
+		ui.Field{Label: "单位", Value: "GiB，1024 MB = 1 GB"},
+	)
+	a.ui.Blank()
+	a.ui.Option("1", "10 GB", "")
+	a.ui.Option("2", "20 GB", "")
+	a.ui.Option("3", "50 GB", "")
+	a.ui.Option("4", "100 GB", "")
+	a.ui.Option("5", "自定义 GB", "1-1048576")
+	a.ui.Option("6", "不限制", "只按保留期清理")
+	a.ui.ExitOption("返回指标设置")
+	a.ui.Blank()
+	choice, err := a.ui.Ask("请选择")
+	if err != nil {
+		return
+	}
+	next := current
+	switch strings.ToLower(choice) {
+	case "0", "q", "exit":
+		return
+	case "1":
+		next.SizeBytes = 10 * 1024 * 1024 * 1024
+	case "2":
+		next.SizeBytes = 20 * 1024 * 1024 * 1024
+	case "3":
+		next.SizeBytes = 50 * 1024 * 1024 * 1024
+	case "4":
+		next.SizeBytes = 100 * 1024 * 1024 * 1024
+	case "5":
+		sizeValue, err := a.ui.Ask("磁盘上限 GB（1-1048576）")
+		if err != nil {
+			return
+		}
+		gigs, err := strconv.Atoi(strings.TrimSpace(sizeValue))
+		if err != nil || gigs < 1 || gigs > 1048576 {
+			a.operationError("无法设置磁盘上限", errors.New("请输入 1-1048576 之间的整数 GB"))
+			return
+		}
+		next.SizeBytes = int64(gigs) * 1024 * 1024 * 1024
+	case "6":
+		next.SizeBytes = 0
+	default:
+		a.ui.InvalidChoice()
+		a.ui.Pause()
+		return
+	}
+	if next.Unlimited && next.SizeBytes == 0 {
+		a.ui.Card(ui.Warning, "关闭磁盘上限且未设置保留期",
+			ui.Field{Label: "影响", Value: "/var/lib/prometheus 会持续增长，直到磁盘耗尽"},
+		)
+	}
+	prompt := "确认将指标磁盘上限设置为" + metricSizeText(next)
+	if next.SizeBytes == 0 {
+		prompt = "确认关闭指标磁盘上限"
+	}
+	confirmed, err := a.ui.Confirm(prompt)
+	if err != nil || !confirmed {
+		return
+	}
+	a.applyPrometheusMetricSettings(ctx, next, "正在更新 Prometheus 磁盘上限")
+}
+
+func (a *App) resetPrometheusMetricSettings(ctx context.Context) {
+	a.ui.Card(ui.Warning, "将恢复 Prometheus 默认存储策略",
+		ui.Field{Label: "保留期", Value: "15 天"},
+		ui.Field{Label: "磁盘上限", Value: "不限制"},
+	)
+	confirmed, err := a.ui.Confirm("确认恢复默认指标设置")
+	if err != nil || !confirmed {
+		return
+	}
+	a.applyPrometheusMetricSettings(ctx, manager.PrometheusStorageSettings{}, "正在恢复 Prometheus 默认指标设置")
+}
+
+func (a *App) applyPrometheusMetricSettings(ctx context.Context, settings manager.PrometheusStorageSettings, progress string) {
+	err := a.ui.During(progress, func() error {
+		return a.manager.ApplyPrometheusStorageSettings(ctx, settings)
+	})
+	if err != nil {
+		a.operationError("Prometheus 指标设置未应用", err)
+		return
+	}
+	configuration, err := a.manager.Configuration("prometheus")
+	if err != nil {
+		a.operationError("指标设置已写入，但读取配置失败", err)
+		return
+	}
+	a.ui.Card(ui.Success, "Prometheus 指标设置已应用",
+		ui.Field{Label: "保留期", Value: metricRetentionText(configuration.MetricSettings), Detail: metricRetentionDetail(configuration.MetricSettings)},
+		ui.Field{Label: "磁盘上限", Value: metricSizeText(configuration.MetricSettings)},
+		ui.Field{Label: "生效方式", Value: "已写入 prometheus.service 并重启"},
+	)
+	a.ui.Pause()
+}
+
+func (a *App) lokiLogSettingsMenu(ctx context.Context, component componentView) error {
+	for {
+		configuration, err := a.manager.Configuration(component.name)
+		if err != nil {
+			return err
+		}
+		settings := configuration.LogSettings
+		a.ui.Clear()
+		a.ui.Title(component.label, "配置管理", "日志设置")
+		a.ui.Card(ui.Neutral, "当前 Loki 日志策略",
+			ui.Field{Label: "保留期", Value: logRetentionText(settings), Detail: logRetentionDetail(settings)},
+			ui.Field{Label: "摄入速率", Value: logIngestionRateText(settings)},
+			ui.Field{Label: "突发大小", Value: logIngestionBurstText(settings)},
+			ui.Field{Label: "单行上限", Value: logLineSizeText(settings)},
+		)
+		a.ui.Blank()
+		a.ui.OptionLive("1", "设置保留期", logRetentionBadge(settings), settings.Retention > 0)
+		a.ui.Option("2", "设置摄入限制", logIngestionText(settings))
+		a.ui.Option("3", "恢复默认", "不限制保留")
+		a.ui.ExitOption("返回配置管理")
+		a.ui.Blank()
+		choice, err := a.ui.Ask("请选择")
+		if err != nil {
+			return err
+		}
+		switch strings.ToLower(choice) {
+		case "0", "q", "exit":
+			return nil
+		case "1":
+			a.changeLokiRetention(ctx, settings)
+		case "2":
+			a.changeLokiIngestion(ctx, settings)
+		case "3":
+			a.resetLokiLogSettings(ctx)
+		default:
+			a.ui.InvalidChoice()
+			a.ui.Pause()
+		}
+	}
+}
+
+func (a *App) changeLokiRetention(ctx context.Context, current manager.LokiLogSettings) {
+	a.ui.Clear()
+	a.ui.Title("Loki", "配置管理", "日志设置", "保留期")
+	a.ui.Card(ui.Neutral, "过期日志由 Loki Compactor 删除",
+		ui.Field{Label: "最短时间", Value: "24 小时"},
+		ui.Field{Label: "不限制", Value: "日志会一直写入 /var/lib/loki，直到磁盘耗尽"},
+		ui.Field{Label: "当前值", Value: logRetentionText(current)},
+	)
+	a.ui.Blank()
+	a.ui.Option("1", "7 天", "")
+	a.ui.Option("2", "15 天", "")
+	a.ui.Option("3", "30 天", "推荐")
+	a.ui.Option("4", "90 天", "")
+	a.ui.Option("5", "自定义天数", "1-3650")
+	a.ui.Option("6", "不限制", "磁盘持续增长")
+	a.ui.ExitOption("返回日志设置")
+	a.ui.Blank()
+	choice, err := a.ui.Ask("请选择")
+	if err != nil {
+		return
+	}
+	var retention time.Duration
+	switch strings.ToLower(choice) {
+	case "0", "q", "exit":
+		return
+	case "1":
+		retention = 7 * 24 * time.Hour
+	case "2":
+		retention = 15 * 24 * time.Hour
+	case "3":
+		retention = 30 * 24 * time.Hour
+	case "4":
+		retention = 90 * 24 * time.Hour
+	case "5":
+		daysValue, err := a.ui.Ask("保留天数（1-3650）")
+		if err != nil {
+			return
+		}
+		days, err := strconv.Atoi(strings.TrimSpace(daysValue))
+		if err != nil || days < 1 || days > 3650 {
+			a.operationError("无法设置日志保留期", errors.New("请输入 1-3650 之间的整数天数"))
+			return
+		}
+		retention = time.Duration(days) * 24 * time.Hour
+	case "6":
+		retention = 0
+	default:
+		a.ui.InvalidChoice()
+		a.ui.Pause()
+		return
+	}
+	if retention == 0 {
+		a.ui.Card(ui.Warning, "关闭保留期后日志将无限保存",
+			ui.Field{Label: "影响", Value: "/var/lib/loki 会持续增长，需要自行监控磁盘"},
+			ui.Field{Label: "已有数据", Value: "已经写入的日志不会因为本次设置被删除"},
+		)
+	}
+	prompt := "确认将日志保留期设置为" + formatRetentionChoice(retention)
+	if retention == 0 {
+		prompt = "确认关闭日志保留期并不再自动删除过期日志"
+	}
+	confirmed, err := a.ui.Confirm(prompt)
+	if err != nil || !confirmed {
+		return
+	}
+	next := current
+	next.Retention = retention
+	a.applyLokiLogSettings(ctx, next, "正在更新 Loki 日志保留期")
+}
+
+func (a *App) changeLokiIngestion(ctx context.Context, current manager.LokiLogSettings) {
+	rateDefault := current.IngestionRateMB
+	if rateDefault == 0 {
+		rateDefault = 4
+	}
+	burstDefault := current.IngestionBurstMB
+	if burstDefault == 0 {
+		burstDefault = 6
+	}
+	lineDefault := current.MaxLineSizeKB
+	if lineDefault == 0 {
+		lineDefault = 256
+	}
+	a.ui.Clear()
+	a.ui.Title("Loki", "配置管理", "日志设置", "摄入限制")
+	a.ui.Card(ui.Neutral, "限制单机 Loki 接收日志的速度和单行大小",
+		ui.Field{Label: "摄入速率", Value: fmt.Sprintf("%d MB/s", rateDefault), Detail: "超过后新日志会被拒绝，直到速率回落"},
+		ui.Field{Label: "突发大小", Value: fmt.Sprintf("%d MB", burstDefault), Detail: "必须不小于摄入速率"},
+		ui.Field{Label: "单行上限", Value: fmt.Sprintf("%d KB", lineDefault), Detail: "超长 journal 行会被 Loki 拒绝"},
+	)
+	rateValue, err := a.ui.Ask(fmt.Sprintf("摄入速率 MB/s（1-1024，回车使用 %d）", rateDefault))
+	if err != nil {
+		return
+	}
+	rate, err := parseOptionalPositiveInt(rateValue, rateDefault, 1, 1024)
+	if err != nil {
+		a.operationError("无法设置摄入速率", err)
+		return
+	}
+	burstValue, err := a.ui.Ask(fmt.Sprintf("突发大小 MB（%d-2048，回车使用 %d）", rate, burstDefault))
+	if err != nil {
+		return
+	}
+	if burstDefault < rate {
+		burstDefault = rate
+	}
+	burst, err := parseOptionalPositiveInt(burstValue, burstDefault, rate, 2048)
+	if err != nil {
+		a.operationError("无法设置突发大小", err)
+		return
+	}
+	lineValue, err := a.ui.Ask(fmt.Sprintf("单行上限 KB（1-16384，回车使用 %d）", lineDefault))
+	if err != nil {
+		return
+	}
+	lineSize, err := parseOptionalPositiveInt(lineValue, lineDefault, 1, 16384)
+	if err != nil {
+		a.operationError("无法设置单行上限", err)
+		return
+	}
+	confirmed, err := a.ui.Confirm(fmt.Sprintf("确认将摄入限制设置为 %d MB/s、突发 %d MB、单行 %d KB", rate, burst, lineSize))
+	if err != nil || !confirmed {
+		return
+	}
+	next := current
+	next.IngestionRateMB = rate
+	next.IngestionBurstMB = burst
+	next.MaxLineSizeKB = lineSize
+	a.applyLokiLogSettings(ctx, next, "正在更新 Loki 摄入限制")
+}
+
+func (a *App) resetLokiLogSettings(ctx context.Context) {
+	a.ui.Card(ui.Warning, "将恢复首次安装时的日志策略",
+		ui.Field{Label: "保留期", Value: "不限制，已有日志不会被自动删除"},
+		ui.Field{Label: "摄入限制", Value: "使用 Loki 默认值：4 MB/s、突发 6 MB、单行 256 KB"},
+	)
+	confirmed, err := a.ui.Confirm("确认恢复默认日志设置")
+	if err != nil || !confirmed {
+		return
+	}
+	a.applyLokiLogSettings(ctx, manager.LokiLogSettings{}, "正在恢复 Loki 默认日志设置")
+}
+
+func (a *App) applyLokiLogSettings(ctx context.Context, settings manager.LokiLogSettings, progress string) {
+	err := a.ui.During(progress, func() error {
+		return a.manager.ApplyLokiLogSettings(ctx, settings)
+	})
+	if err != nil {
+		a.operationError("Loki 日志设置未应用", err)
+		return
+	}
+	configuration, err := a.manager.Configuration("loki")
+	if err != nil {
+		a.operationError("日志设置已写入，但读取配置失败", err)
+		return
+	}
+	a.ui.Card(ui.Success, "Loki 日志设置已应用",
+		ui.Field{Label: "保留期", Value: logRetentionText(configuration.LogSettings), Detail: logRetentionDetail(configuration.LogSettings)},
+		ui.Field{Label: "摄入限制", Value: logIngestionText(configuration.LogSettings)},
+		ui.Field{Label: "配置文件", Value: "/etc/loki/loki.yml"},
 	)
 	a.ui.Pause()
 }
@@ -1229,6 +1678,178 @@ func enabledText(enabled bool) string {
 		return "已开启"
 	}
 	return "已关闭"
+}
+
+func metricSettingsSummary(settings manager.PrometheusStorageSettings) string {
+	return metricRetentionText(settings) + " · " + metricSizeText(settings)
+}
+
+func metricSettingsDetail(settings manager.PrometheusStorageSettings) string {
+	if settings.Unlimited && settings.SizeBytes == 0 {
+		return "未限制时间和磁盘，/var/lib/prometheus 会持续增长"
+	}
+	return "时间与磁盘上限同时生效，先到先清理"
+}
+
+func metricSettingsBadge(settings manager.PrometheusStorageSettings) string {
+	if settings.SizeBytes == 0 {
+		return metricRetentionBadge(settings)
+	}
+	return metricRetentionBadge(settings) + " · " + metricSizeText(settings)
+}
+
+func metricRetentionBadge(settings manager.PrometheusStorageSettings) string {
+	if settings.Unlimited {
+		return "不限制"
+	}
+	if settings.Retention <= 0 {
+		return "15 天"
+	}
+	return formatRetentionChoice(settings.Retention)
+}
+
+func metricRetentionText(settings manager.PrometheusStorageSettings) string {
+	if settings.Unlimited {
+		return "不限制"
+	}
+	if settings.Retention <= 0 {
+		return "15 天（默认）"
+	}
+	return formatRetentionChoice(settings.Retention)
+}
+
+func metricRetentionDetail(settings manager.PrometheusStorageSettings) string {
+	if settings.Unlimited {
+		return "不再按天数删除指标"
+	}
+	if settings.Retention <= 0 {
+		return "未写入自定义时间参数，使用 Prometheus 默认 15 天"
+	}
+	return "已写入 prometheus.service 的 --storage.tsdb.retention.time"
+}
+
+func metricSizeText(settings manager.PrometheusStorageSettings) string {
+	if settings.SizeBytes <= 0 {
+		return "不限制"
+	}
+	return formatMetricSize(settings.SizeBytes)
+}
+
+func formatMetricSize(bytes int64) string {
+	const (
+		kb = 1024
+		mb = 1024 * kb
+		gb = 1024 * mb
+		tb = 1024 * gb
+	)
+	switch {
+	case bytes%tb == 0:
+		return fmt.Sprintf("%d TB", bytes/tb)
+	case bytes%gb == 0:
+		return fmt.Sprintf("%d GB", bytes/gb)
+	case bytes%mb == 0:
+		return fmt.Sprintf("%d MB", bytes/mb)
+	default:
+		return fmt.Sprintf("%d B", bytes)
+	}
+}
+
+func logSettingsSummary(settings manager.LokiLogSettings) string {
+	return logRetentionText(settings) + " · " + logIngestionText(settings)
+}
+
+func logSettingsDetail(settings manager.LokiLogSettings) string {
+	if settings.Retention == 0 {
+		return "未设置保留期，磁盘会持续增长"
+	}
+	if !settings.RetentionDeletes {
+		return "已写入保留期，但尚未启用 Compactor 删除；保存一次日志设置即可启用"
+	}
+	return "过期日志由 Loki Compactor 删除"
+}
+
+func logRetentionBadge(settings manager.LokiLogSettings) string {
+	if settings.Retention <= 0 {
+		return "不限制"
+	}
+	return formatRetentionChoice(settings.Retention)
+}
+
+func logRetentionText(settings manager.LokiLogSettings) string {
+	if settings.Retention <= 0 {
+		return "不限制"
+	}
+	text := formatRetentionChoice(settings.Retention)
+	if !settings.RetentionDeletes {
+		return text + "（未启用删除）"
+	}
+	return text
+}
+
+func logRetentionDetail(settings manager.LokiLogSettings) string {
+	if settings.Retention <= 0 {
+		return "Loki 不会自动删除历史日志"
+	}
+	if !settings.RetentionDeletes {
+		return "请通过本菜单重新保存保留期，以启用 Compactor"
+	}
+	return "Compactor 会按保留期清理 /var/lib/loki"
+}
+
+func logIngestionText(settings manager.LokiLogSettings) string {
+	if settings.IngestionRateMB == 0 && settings.IngestionBurstMB == 0 && settings.MaxLineSizeKB == 0 {
+		return "默认 4 MB/s"
+	}
+	return fmt.Sprintf("%s · %s", logIngestionRateText(settings), logLineSizeText(settings))
+}
+
+func logIngestionRateText(settings manager.LokiLogSettings) string {
+	if settings.IngestionRateMB == 0 {
+		return "4 MB/s（默认）"
+	}
+	return fmt.Sprintf("%d MB/s", settings.IngestionRateMB)
+}
+
+func logIngestionBurstText(settings manager.LokiLogSettings) string {
+	if settings.IngestionBurstMB == 0 {
+		return "6 MB（默认）"
+	}
+	return fmt.Sprintf("%d MB", settings.IngestionBurstMB)
+}
+
+func logLineSizeText(settings manager.LokiLogSettings) string {
+	if settings.MaxLineSizeKB == 0 {
+		return "256 KB（默认）"
+	}
+	return fmt.Sprintf("%d KB", settings.MaxLineSizeKB)
+}
+
+func formatRetentionChoice(retention time.Duration) string {
+	if retention <= 0 {
+		return "不限制"
+	}
+	if retention%(24*time.Hour) == 0 {
+		return fmt.Sprintf("%d 天", retention/(24*time.Hour))
+	}
+	if retention%time.Hour == 0 {
+		return fmt.Sprintf("%d 小时", retention/time.Hour)
+	}
+	return retention.String()
+}
+
+func parseOptionalPositiveInt(value string, fallback, minimum, maximum int) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		if fallback < minimum || fallback > maximum {
+			return 0, fmt.Errorf("请输入 %d-%d 之间的整数", minimum, maximum)
+		}
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < minimum || parsed > maximum {
+		return 0, fmt.Errorf("请输入 %d-%d 之间的整数", minimum, maximum)
+	}
+	return parsed, nil
 }
 
 func probeEnabledText(enabled bool) string {

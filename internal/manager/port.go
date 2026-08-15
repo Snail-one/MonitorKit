@@ -79,7 +79,7 @@ func (m *Manager) ChangeListenPort(ctx context.Context, name string, port int) e
 		return rollback(err)
 	}
 	mtlsEnabled := mtlsEnabledLocked(m, spec.name)
-	if err := atomicWrite(unitPath, []byte(spec.unit(mtlsEnabled, managedRemoteWriteEnabled(m, spec.name), port)), 0644); err != nil {
+	if err := atomicWrite(unitPath, []byte(m.componentUnitLocked(spec, mtlsEnabled, managedRemoteWriteEnabled(m, spec.name), port)), 0644); err != nil {
 		return rollback(err)
 	}
 	if err := atomicWrite(portPath, []byte(strconv.Itoa(port)+"\n"), 0640); err != nil {

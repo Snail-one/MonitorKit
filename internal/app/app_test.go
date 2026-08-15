@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Snail-one/MonitorKit/internal/manager"
 	"github.com/Snail-one/MonitorKit/internal/ui"
@@ -335,6 +336,184 @@ func TestHTTPRemoteWriteWarnsAndRequiresConfirmation(t *testing.T) {
 	}
 	if !strings.Contains(string(unit), "--web.enable-remote-write-receiver") || strings.Contains(string(unit), "--web.config.file") {
 		t.Fatalf("unexpected HTTP remote-write unit:\n%s", unit)
+	}
+}
+
+func TestPrometheusConfigurationMenuShowsMetricSettings(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"usr/local/bin/prometheus":      "installed\n",
+		"etc/prometheus/prometheus.yml": "scrape_configs: []\n",
+		"etc/prometheus/listen.port":    "19090\n",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &output))
+	if err := application.configurationMenu(context.Background(), componentViews["prometheus"]); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"指标设置", "[15 天]", "开启远程写入"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Prometheus configuration menu does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestPrometheusMetricSettingsMenuAppliesRetention(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"usr/local/bin/prometheus":              "installed\n",
+		"etc/prometheus/prometheus.yml":         "scrape_configs: []\n",
+		"etc/prometheus/listen.port":            "19090\n",
+		"etc/systemd/system/prometheus.service": "[Service]\nExecStart=/usr/local/bin/prometheus\n",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("1\n3\ny\n\nq\n"), &output))
+	if err := application.prometheusMetricSettingsMenu(context.Background(), componentViews["prometheus"]); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"当前 Prometheus 存储策略", "30 天", "已应用"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("metric settings menu does not contain %q:\n%s", want, got)
+		}
+	}
+	unit, err := os.ReadFile(filepath.Join(root, "etc/systemd/system/prometheus.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(unit), "--storage.tsdb.retention.time=30d") {
+		t.Fatalf("unit missing retention flag:\n%s", unit)
+	}
+}
+
+func TestMetricRetentionHelpers(t *testing.T) {
+	if got := metricRetentionText(manager.PrometheusStorageSettings{}); got != "15 天（默认）" {
+		t.Fatalf("default retention = %q", got)
+	}
+	if got := metricRetentionText(manager.PrometheusStorageSettings{Unlimited: true}); got != "不限制" {
+		t.Fatalf("unlimited retention = %q", got)
+	}
+	if got := metricSizeText(manager.PrometheusStorageSettings{SizeBytes: 20 * 1024 * 1024 * 1024}); got != "20 GB" {
+		t.Fatalf("size = %q", got)
+	}
+}
+
+func TestLokiConfigurationMenuShowsLogSettings(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"usr/local/bin/loki":   "installed\n",
+		"etc/loki/loki.yml":    "auth_enabled: false\nlimits_config:\n  allow_structured_metadata: true\n",
+		"etc/loki/listen.port": "31876\n",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &output))
+	if err := application.configurationMenu(context.Background(), componentViews["loki"]); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"日志设置", "[不限制]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Loki configuration menu does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestLokiLogSettingsMenuAppliesRetention(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	config := "auth_enabled: false\n\nlimits_config:\n  allow_structured_metadata: true\n"
+	for path, content := range map[string]string{
+		"usr/local/bin/loki":   "installed\n",
+		"etc/loki/loki.yml":    config,
+		"etc/loki/listen.port": "31876\n",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("1\n3\ny\n\nq\n"), &output))
+	if err := application.lokiLogSettingsMenu(context.Background(), componentViews["loki"]); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"当前 Loki 日志策略", "30 天", "已应用"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("log settings menu does not contain %q:\n%s", want, got)
+		}
+	}
+	content, err := os.ReadFile(filepath.Join(root, "etc/loki/loki.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := string(content)
+	for _, want := range []string{"retention_period: 30d", "retention_enabled: true", "delete_request_store: filesystem"} {
+		if !strings.Contains(updated, want) {
+			t.Fatalf("loki.yml missing %q:\n%s", want, updated)
+		}
+	}
+}
+
+func TestLogRetentionHelpers(t *testing.T) {
+	if got := logRetentionBadge(manager.LokiLogSettings{}); got != "不限制" {
+		t.Fatalf("unlimited badge = %q", got)
+	}
+	if got := logRetentionText(manager.LokiLogSettings{Retention: 30 * 24 * time.Hour}); got != "30 天（未启用删除）" {
+		t.Fatalf("pending retention = %q", got)
+	}
+	if got := logRetentionText(manager.LokiLogSettings{Retention: 7 * 24 * time.Hour, RetentionDeletes: true}); got != "7 天" {
+		t.Fatalf("enabled retention = %q", got)
+	}
+	if got := logIngestionText(manager.LokiLogSettings{}); got != "默认 4 MB/s" {
+		t.Fatalf("default ingestion = %q", got)
 	}
 }
 
