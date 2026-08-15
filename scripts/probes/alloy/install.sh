@@ -1142,6 +1142,7 @@ prometheus.scrape "host" {
   targets         = prometheus.exporter.unix.host.targets
   forward_to      = [prometheus.relabel.host_identity.receiver]
   scrape_interval = "15s"
+  scrape_timeout  = "10s"
 }
 
 prometheus.relabel "host_identity" {
