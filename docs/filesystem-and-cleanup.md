@@ -15,8 +15,10 @@
 ## 默认持久化路径总索引
 
 ```text
+/usr/local/sbin/
+└── monitorkit
+
 /usr/local/bin/
-├── monitorkit
 ├── prometheus
 ├── promtool
 ├── loki
@@ -114,17 +116,17 @@ systemctl cat alloy       # 查看实际加载的 unit 和环境文件
 在线安装脚本默认只持久写入：
 
 ```text
-/usr/local/bin/monitorkit
+/usr/local/sbin/monitorkit
 ```
 
 安装期间还会使用以下临时文件，正常结束或失败退出时自动删除：
 
 ```text
 ${TMPDIR:-/tmp}/monitorkit-install.XXXXXXXX/
-/usr/local/bin/.monitorkit.new.<PID>
+/usr/local/sbin/.monitorkit.new.<PID>
 ```
 
-`MONITORKIT_INSTALL_DIR` 和 `MONITORKIT_BINARY_NAME` 可以改变实际安装位置及文件名。
+`MONITORKIT_INSTALL_DIR` 和 `MONITORKIT_BINARY_NAME` 可以改变实际安装位置及文件名。使用默认命令名且安装目录不是 `/usr/local/bin` 时，安装、更新和卸载还会删除旧默认路径 `/usr/local/bin/monitorkit`。
 
 执行以下任一命令只删除管理程序二进制：
 
@@ -353,6 +355,7 @@ ${TMPDIR:-/tmp}/monitorkit-action-*.sh        # monitorkit update/uninstall 下�
 ${TMPDIR:-/tmp}/monitorkit-prometheus-*       # Prometheus 下载和解压目录
 ${TMPDIR:-/tmp}/monitorkit-loki-*             # Loki 下载和解压目录
 
+/usr/local/sbin/.monitorkit-*                 # 管理程序二进制原子替换临时文件
 /usr/local/bin/.monitorkit-*                  # 中心组件二进制原子替换临时文件
 /etc/prometheus/.monitorkit-*                 # 配置、端口、开关原子写入临时文件
 /etc/prometheus/tls/.monitorkit-*
@@ -388,6 +391,7 @@ Go 构建缓存                                   # 位置由 GOCACHE 决定
 任何卸载模式都只删除明确列出的目标，不会删除这些共享父目录：
 
 ```text
+/usr/local/sbin/
 /usr/local/bin/
 /etc/systemd/system/
 /etc/

@@ -55,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 sudo monitorkit update
 ```
 
-安装器会先取得 `checksums.txt`，只有版本和本地 SHA-256 都一致时才跳过更新。新文件下载后会再次校验 SHA-256 和 `--version`，最后在 `/usr/local/bin` 内原子替换旧程序。
+安装器会先取得 `checksums.txt`，只有版本和本地 SHA-256 都一致时才跳过更新。新文件下载后会再次校验 SHA-256 和 `--version`，最后在 `/usr/local/sbin` 内原子替换旧程序。若仍存在旧默认路径 `/usr/local/bin/monitorkit`，安装或更新成功后会删除。
 
 ## 在线卸载
 
@@ -69,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 sudo monitorkit uninstall
 ```
 
-自身卸载只删除 `/usr/local/bin/monitorkit`，不会删除 Prometheus、Loki、配置和监控数据。中心组件仍分别使用下面的命令管理：
+自身卸载只删除 `/usr/local/sbin/monitorkit`，以及可能残留的旧路径 `/usr/local/bin/monitorkit`，不会删除 Prometheus、Loki、配置和监控数据。中心组件仍分别使用下面的命令管理：
 
 ```bash
 sudo monitorkit uninstall prometheus

@@ -30,7 +30,7 @@ MonitorKit/
 
 ```bash
 OUTPUT=bin/monitorkit ./scripts/build_linux.sh
-sudo install -m 0755 bin/monitorkit /usr/local/bin/monitorkit
+sudo install -m 0755 bin/monitorkit /usr/local/sbin/monitorkit
 ```
 
 也可以运行 `make build`。发布构建脚本默认生成带版本和架构的 `dist/monitorkit_linux_<arch>_<version>`，并支持通过 `OUTPUT` 自定义本地输出路径：
@@ -45,7 +45,7 @@ VERSION=v1.0.0 GOARCH=amd64 ./scripts/build_linux.sh
 sudo monitorkit
 ```
 
-交互界面提供中心组件状态总览、Prometheus/Loki 独立管理和探针接入命令。终端支持颜色时会显示状态徽标和动态操作反馈；设置 `NO_COLOR=1` 可关闭颜色。
+除 `--version` 和 `--help` 外，启动时会检测 root 权限；普通用户运行会直接退出。交互界面提供中心组件状态总览、Prometheus/Loki 独立管理和探针接入命令。终端支持颜色时会显示状态徽标和动态操作反馈；设置 `NO_COLOR=1` 可关闭颜色。
 
 ## 在线安装、更新与卸载
 
@@ -76,7 +76,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 ```bash
 sudo monitorkit install prometheus
 sudo monitorkit install loki
-monitorkit status
+sudo monitorkit status
 ```
 
 固定版本安装：

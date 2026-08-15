@@ -69,6 +69,9 @@ export FAKE_VERSION="${VERSION}"
 export PATH="${FAKE_BIN_DIR}:${PATH}"
 export NO_COLOR=1
 
+grep -Fq 'INSTALL_DIR="${MONITORKIT_INSTALL_DIR:-/usr/local/sbin}"' "${ROOT_DIR}/scripts/install.sh"
+grep -Fq '默认为 /usr/local/sbin' "${ROOT_DIR}/scripts/install.sh"
+
 MONITORKIT_INSTALL_DIR="${INSTALL_DIR}" sh "${ROOT_DIR}/scripts/install.sh"
 test -x "${INSTALL_DIR}/monitorkit"
 test "$("${INSTALL_DIR}/monitorkit" --version | sed -n '1p')" = "monitorkit ${VERSION}"

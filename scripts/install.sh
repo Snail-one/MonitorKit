@@ -3,8 +3,9 @@
 set -eu
 
 REPOSITORY="Snail-one/MonitorKit"
-INSTALL_DIR="${MONITORKIT_INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${MONITORKIT_INSTALL_DIR:-/usr/local/sbin}"
 BINARY_NAME="${MONITORKIT_BINARY_NAME:-monitorkit}"
+LEGACY_TARGET=""
 RELEASE="${MONITORKIT_VERSION:-latest}"
 MODE="install"
 TEMP_DIR=""
@@ -87,7 +88,7 @@ MonitorKit 在线安装、更新与卸载脚本。
 
 可选环境变量：
   MONITORKIT_VERSION       目标版本，默认为 latest
-  MONITORKIT_INSTALL_DIR   安装目录，默认为 /usr/local/bin
+  MONITORKIT_INSTALL_DIR   安装目录，默认为 /usr/local/sbin
   MONITORKIT_BINARY_NAME   命令名，默认为 monitorkit
 
 卸载只删除 MonitorKit 管理程序，不删除 Prometheus、Loki、配置或监控数据。
@@ -128,12 +129,27 @@ case "$INSTALL_DIR" in
 	*) fail "安装目录必须是绝对路径：$INSTALL_DIR" ;;
 esac
 TARGET="${INSTALL_DIR}/${BINARY_NAME}"
+if [ "$BINARY_NAME" = "monitorkit" ] && [ "$INSTALL_DIR" != "/usr/local/bin" ]; then
+	LEGACY_TARGET="/usr/local/bin/monitorkit"
+fi
+
+remove_legacy_binary() {
+	if [ -z "$LEGACY_TARGET" ]; then
+		return 0
+	fi
+	if [ ! -e "$LEGACY_TARGET" ] && [ ! -L "$LEGACY_TARGET" ]; then
+		return 0
+	fi
+	rm -f -- "$LEGACY_TARGET"
+	[ ! -e "$LEGACY_TARGET" ] && [ ! -L "$LEGACY_TARGET" ] || fail "无法删除旧程序文件：$LEGACY_TARGET"
+	info "已移除旧路径：$LEGACY_TARGET"
+}
 
 [ "$(id -u)" -eq 0 ] || fail "该操作需要 root 权限，请使用 sudo 运行"
 
 if [ "$MODE" = "uninstall" ]; then
 	step "检查安装状态"
-	if [ ! -e "$TARGET" ] && [ ! -L "$TARGET" ]; then
+	if [ ! -e "$TARGET" ] && [ ! -L "$TARGET" ] && { [ -z "$LEGACY_TARGET" ] || { [ ! -e "$LEGACY_TARGET" ] && [ ! -L "$LEGACY_TARGET" ]; }; }; then
 		result "MonitorKit 当前未安装，无需卸载"
 		exit 0
 	fi
@@ -141,11 +157,17 @@ if [ "$MODE" = "uninstall" ]; then
 	if [ -x "$TARGET" ]; then
 		CURRENT_RELEASE="$("$TARGET" --version 2>/dev/null | awk '$1 == "monitorkit" { print $2; exit }' || true)"
 		[ -n "$CURRENT_RELEASE" ] || CURRENT_RELEASE="未知"
+	elif [ -n "$LEGACY_TARGET" ] && [ -x "$LEGACY_TARGET" ]; then
+		CURRENT_RELEASE="$("$LEGACY_TARGET" --version 2>/dev/null | awk '$1 == "monitorkit" { print $2; exit }' || true)"
+		[ -n "$CURRENT_RELEASE" ] || CURRENT_RELEASE="未知"
 	fi
 	info "当前版本：$CURRENT_RELEASE"
 	info "程序路径：$TARGET"
-	rm -f -- "$TARGET"
-	[ ! -e "$TARGET" ] && [ ! -L "$TARGET" ] || fail "无法删除程序文件：$TARGET"
+	if [ -e "$TARGET" ] || [ -L "$TARGET" ]; then
+		rm -f -- "$TARGET"
+		[ ! -e "$TARGET" ] && [ ! -L "$TARGET" ] || fail "无法删除程序文件：$TARGET"
+	fi
+	remove_legacy_binary
 	uninstall_completion_card "$CURRENT_RELEASE" "$TARGET"
 	exit 0
 fi
@@ -267,6 +289,7 @@ if [ "$CURRENT_RELEASE" = "$RELEASE_VERSION" ]; then
 	CURRENT_SHA256="$(file_sha256 "$TARGET")"
 	if [ "$CURRENT_SHA256" = "$EXPECTED_SHA256" ]; then
 		release_card "$CURRENT_DISPLAY" "$RELEASE_VERSION" "无需更新"
+		remove_legacy_binary
 		if [ "$LATEST_RELEASE" = "true" ]; then
 			result "当前已是最新正式版本"
 		else
@@ -302,5 +325,6 @@ STAGED_FILE="${INSTALL_DIR}/.${BINARY_NAME}.new.$$"
 install -m 0755 "$ASSET_FILE" "$STAGED_FILE"
 mv -f "$STAGED_FILE" "$TARGET"
 STAGED_FILE=""
+remove_legacy_binary
 
 completion_card "$ACTION" "$RELEASE_VERSION" "$TARGET"
