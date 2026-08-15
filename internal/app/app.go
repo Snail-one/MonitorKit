@@ -120,11 +120,15 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 		if component.name == "prometheus" {
 			fields = append(fields,
 				ui.Field{Label: "远程写入", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "接收地址：/api/v1/write；mTLS 推荐，HTTP 需确认风险"},
+				ui.Field{Label: "指标大小", Value: dataUsageText(configuration.DataUsage), Detail: dataUsageDetail(configuration.DataUsage)},
 				ui.Field{Label: "数据存储设置", Value: metricSettingsSummary(configuration.MetricSettings), Detail: metricSettingsDetail(configuration.MetricSettings)},
 			)
 		}
 		if component.name == "loki" {
-			fields = append(fields, ui.Field{Label: "数据存储设置", Value: logSettingsSummary(configuration.LogSettings), Detail: logSettingsDetail(configuration.LogSettings)})
+			fields = append(fields,
+				ui.Field{Label: "日志大小", Value: dataUsageText(configuration.DataUsage), Detail: dataUsageDetail(configuration.DataUsage)},
+				ui.Field{Label: "数据存储设置", Value: logSettingsSummary(configuration.LogSettings), Detail: logSettingsDetail(configuration.LogSettings)},
+			)
 		}
 		fields = append(fields, ui.Field{Label: "传输安全", Value: transport})
 		a.ui.Card(ui.Neutral, component.description, fields...)
@@ -236,11 +240,15 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		if component.name == "prometheus" {
 			configFields = append(configFields,
 				ui.Field{Label: "远程写入接收", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "独立开关；HTTP 模式开启时会显示明文传输警告"},
+				ui.Field{Label: "指标大小", Value: dataUsageText(configuration.DataUsage), Detail: dataUsageDetail(configuration.DataUsage)},
 				ui.Field{Label: "数据存储设置", Value: metricSettingsSummary(configuration.MetricSettings), Detail: metricSettingsDetail(configuration.MetricSettings)},
 			)
 		}
 		if component.name == "loki" {
-			configFields = append(configFields, ui.Field{Label: "数据存储设置", Value: logSettingsSummary(configuration.LogSettings), Detail: logSettingsDetail(configuration.LogSettings)})
+			configFields = append(configFields,
+				ui.Field{Label: "日志大小", Value: dataUsageText(configuration.DataUsage), Detail: dataUsageDetail(configuration.DataUsage)},
+				ui.Field{Label: "数据存储设置", Value: logSettingsSummary(configuration.LogSettings), Detail: logSettingsDetail(configuration.LogSettings)},
+			)
 		}
 		a.ui.Card(ui.Neutral, component.label+"配置", configFields...)
 		a.ui.Blank()
@@ -434,6 +442,7 @@ func (a *App) prometheusMetricSettingsMenu(ctx context.Context, component compon
 		a.ui.Clear()
 		a.ui.Title(component.label, "配置管理", "数据存储设置")
 		a.ui.Card(ui.Neutral, "当前 Prometheus 存储策略",
+			ui.Field{Label: "指标大小", Value: dataUsageText(configuration.DataUsage), Detail: dataUsageDetail(configuration.DataUsage)},
 			ui.Field{Label: "保留期", Value: metricRetentionText(settings), Detail: metricRetentionDetail(settings)},
 			ui.Field{Label: "磁盘上限", Value: metricSizeText(settings), Detail: "时间和磁盘上限同时生效，先到的先清理"},
 		)
@@ -1765,7 +1774,7 @@ func dataUsageText(usage manager.DataUsage) string {
 func dataUsageDetail(usage manager.DataUsage) string {
 	path := strings.TrimSpace(usage.Path)
 	if path == "" {
-		path = "/var/lib/loki"
+		return "统计组件数据目录"
 	}
 	return "统计目录：" + path
 }

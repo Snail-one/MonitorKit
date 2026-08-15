@@ -70,6 +70,49 @@ func TestComponentMenuShowsGrayStyleHints(t *testing.T) {
 	}
 }
 
+func TestComponentMenusShowDataUsage(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"usr/local/bin/prometheus":      "installed\n",
+		"usr/local/bin/loki":            "installed\n",
+		"etc/prometheus/prometheus.yml": "scrape_configs: []\n",
+		"etc/prometheus/listen.port":    "19090\n",
+		"etc/loki/loki.yml":             "auth_enabled: false\nlimits_config:\n  allow_structured_metadata: true\n",
+		"etc/loki/listen.port":          "31876\n",
+		"var/lib/prometheus/chunk":      "1234567890",
+		"var/lib/loki/chunk":            "abcdefghij",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prometheusOut bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &prometheusOut))
+	if err := application.componentMenu(context.Background(), componentViews["prometheus"]); err != nil {
+		t.Fatal(err)
+	}
+	if got := prometheusOut.String(); !strings.Contains(got, "指标大小") || !strings.Contains(got, "10 B") {
+		t.Fatalf("Prometheus main panel missing size:\n%s", got)
+	}
+	var lokiOut bytes.Buffer
+	application = New(mgr, ui.New(strings.NewReader("q\n"), &lokiOut))
+	if err := application.componentMenu(context.Background(), componentViews["loki"]); err != nil {
+		t.Fatal(err)
+	}
+	if got := lokiOut.String(); !strings.Contains(got, "日志大小") || !strings.Contains(got, "10 B") {
+		t.Fatalf("Loki main panel missing size:\n%s", got)
+	}
+}
+
 func TestConfigurationAndInstallAreSeparateComponentActions(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	mgr, err := manager.New(t.TempDir())
@@ -365,7 +408,7 @@ func TestPrometheusConfigurationMenuShowsMetricSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"数据存储设置", "[15 天]", "开启远程写入"} {
+	for _, want := range []string{"数据存储设置", "[15 天]", "开启远程写入", "指标大小"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Prometheus configuration menu does not contain %q:\n%s", want, got)
 		}
@@ -413,6 +456,40 @@ func TestPrometheusMetricSettingsMenuAppliesRetention(t *testing.T) {
 	}
 }
 
+func TestPrometheusStorageSettingsMenuShowsDataSize(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"usr/local/bin/prometheus":      "installed\n",
+		"etc/prometheus/prometheus.yml": "scrape_configs: []\n",
+		"etc/prometheus/listen.port":    "19090\n",
+		"var/lib/prometheus/chunk":      "1234567890",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &output))
+	if err := application.prometheusMetricSettingsMenu(context.Background(), componentViews["prometheus"]); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"指标大小", "10 B", "统计目录："} {
+		if !strings.Contains(got, want) {
+			t.Errorf("storage panel does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestMetricRetentionHelpers(t *testing.T) {
 	if got := metricRetentionText(manager.PrometheusStorageSettings{}); got != "15 天（默认）" {
 		t.Fatalf("default retention = %q", got)
@@ -451,7 +528,7 @@ func TestLokiConfigurationMenuShowsLogSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"数据存储设置", "[不限制]"} {
+	for _, want := range []string{"数据存储设置", "[不限制]", "日志大小"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Loki configuration menu does not contain %q:\n%s", want, got)
 		}
