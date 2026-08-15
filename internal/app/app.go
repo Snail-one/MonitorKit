@@ -647,6 +647,7 @@ func (a *App) lokiLogSettingsMenu(ctx context.Context, component componentView) 
 		a.ui.Clear()
 		a.ui.Title(component.label, "配置管理", "数据存储设置")
 		a.ui.Card(ui.Neutral, "当前 Loki 日志策略",
+			ui.Field{Label: "日志大小", Value: dataUsageText(configuration.DataUsage), Detail: dataUsageDetail(configuration.DataUsage)},
 			ui.Field{Label: "保留期", Value: logRetentionText(settings), Detail: logRetentionDetail(settings)},
 			ui.Field{Label: "摄入速率", Value: logIngestionRateText(settings)},
 			ui.Field{Label: "突发大小", Value: logIngestionBurstText(settings)},
@@ -1752,6 +1753,38 @@ func formatMetricSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}
+}
+
+func dataUsageText(usage manager.DataUsage) string {
+	if !usage.Exists {
+		return "尚无数据"
+	}
+	return formatStorageUsage(usage.Bytes)
+}
+
+func dataUsageDetail(usage manager.DataUsage) string {
+	path := strings.TrimSpace(usage.Path)
+	if path == "" {
+		path = "/var/lib/loki"
+	}
+	return "统计目录：" + path
+}
+
+func formatStorageUsage(bytes int64) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	value := float64(bytes)
+	for _, unit := range []string{"KB", "MB", "GB", "TB"} {
+		value /= 1024
+		if value < 1024 || unit == "TB" {
+			if value == float64(int64(value)) {
+				return fmt.Sprintf("%d %s", int64(value), unit)
+			}
+			return fmt.Sprintf("%.1f %s", value, unit)
+		}
+	}
+	return fmt.Sprintf("%d B", bytes)
 }
 
 func logSettingsSummary(settings manager.LokiLogSettings) string {

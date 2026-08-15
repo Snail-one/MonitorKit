@@ -502,6 +502,52 @@ func TestLokiLogSettingsMenuAppliesRetention(t *testing.T) {
 	}
 }
 
+func TestLokiStorageSettingsMenuShowsLogSize(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	for path, content := range map[string]string{
+		"usr/local/bin/loki":   "installed\n",
+		"etc/loki/loki.yml":    "auth_enabled: false\ncommon:\n  path_prefix: /var/lib/loki\nlimits_config:\n  allow_structured_metadata: true\n",
+		"etc/loki/listen.port": "31876\n",
+		"var/lib/loki/chunk":   "1234567890",
+	} {
+		absolute := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &output))
+	if err := application.lokiLogSettingsMenu(context.Background(), componentViews["loki"]); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"日志大小", "10 B", "统计目录："} {
+		if !strings.Contains(got, want) {
+			t.Errorf("storage panel does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestDataUsageText(t *testing.T) {
+	if got := dataUsageText(manager.DataUsage{}); got != "尚无数据" {
+		t.Fatalf("missing = %q", got)
+	}
+	if got := dataUsageText(manager.DataUsage{Exists: true, Bytes: 10}); got != "10 B" {
+		t.Fatalf("bytes = %q", got)
+	}
+	if got := formatStorageUsage(1536); got != "1.5 KB" {
+		t.Fatalf("kb = %q", got)
+	}
+}
+
 func TestLogRetentionHelpers(t *testing.T) {
 	if got := logRetentionBadge(manager.LokiLogSettings{}); got != "不限制" {
 		t.Fatalf("unlimited badge = %q", got)

@@ -22,6 +22,7 @@ type Configuration struct {
 	RemoteWriteEnabled bool
 	LogSettings        LokiLogSettings
 	MetricSettings     PrometheusStorageSettings
+	DataUsage          DataUsage
 }
 
 type TLSFile struct {
@@ -66,6 +67,10 @@ func (m *Manager) Configuration(name string) (Configuration, error) {
 			return Configuration{}, err
 		}
 	}
+	usage, err := m.componentDataUsageLocked(name)
+	if err != nil {
+		return Configuration{}, err
+	}
 	return Configuration{
 		Name:               name,
 		Path:               m.path("/etc/" + name + "/" + name + ".yml"),
@@ -75,6 +80,7 @@ func (m *Manager) Configuration(name string) (Configuration, error) {
 		RemoteWriteEnabled: managedRemoteWriteEnabled(m, name),
 		LogSettings:        logSettings,
 		MetricSettings:     metricSettings,
+		DataUsage:          usage,
 	}, nil
 }
 
