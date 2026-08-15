@@ -365,7 +365,7 @@ func TestPrometheusConfigurationMenuShowsMetricSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"指标设置", "[15 天]", "开启远程写入"} {
+	for _, want := range []string{"数据存储设置", "[15 天]", "开启远程写入"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Prometheus configuration menu does not contain %q:\n%s", want, got)
 		}
@@ -451,7 +451,7 @@ func TestLokiConfigurationMenuShowsLogSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"日志设置", "[不限制]"} {
+	for _, want := range []string{"数据存储设置", "[不限制]"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Loki configuration menu does not contain %q:\n%s", want, got)
 		}

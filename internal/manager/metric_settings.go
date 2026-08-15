@@ -80,7 +80,7 @@ func (m *Manager) applyPrometheusStorageSettingsLocked(ctx context.Context, sett
 			_ = run(ctx, "systemctl", "restart", "prometheus.service")
 		}
 		if restoreErr != nil {
-			return fmt.Errorf("%v；恢复原指标设置失败：%w", cause, restoreErr)
+			return fmt.Errorf("%v；恢复原数据存储设置失败：%w", cause, restoreErr)
 		}
 		return cause
 	}
@@ -99,7 +99,7 @@ func (m *Manager) applyPrometheusStorageSettingsLocked(ctx context.Context, sett
 		return nil
 	}
 	if err := spec.validate(ctx, configPath); err != nil {
-		return rollback(fmt.Errorf("修改指标设置后的配置校验失败：%w", err))
+		return rollback(fmt.Errorf("修改数据存储设置后的配置校验失败：%w", err))
 	}
 	if mtlsEnabledLocked(m, spec.name) {
 		if err := m.validateMTLSConfigLocked(ctx, spec, configPath); err != nil {
@@ -110,7 +110,7 @@ func (m *Manager) applyPrometheusStorageSettingsLocked(ctx context.Context, sett
 		return rollback(err)
 	}
 	if err := run(ctx, "systemctl", "restart", "prometheus.service"); err != nil {
-		return rollback(fmt.Errorf("应用指标设置后服务启动失败，已恢复原配置：%w", err))
+		return rollback(fmt.Errorf("应用数据存储设置后服务启动失败，已恢复原配置：%w", err))
 	}
 	return nil
 }
@@ -221,7 +221,7 @@ func parsePrometheusStorageSettings(content []byte) (PrometheusStorageSettings, 
 		}
 		key, value, ok := strings.Cut(line, "=")
 		if !ok {
-			return PrometheusStorageSettings{}, fmt.Errorf("指标设置无效：%s", line)
+			return PrometheusStorageSettings{}, fmt.Errorf("数据存储设置无效：%s", line)
 		}
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
@@ -237,7 +237,7 @@ func parsePrometheusStorageSettings(content []byte) (PrometheusStorageSettings, 
 			}
 			settings.SizeBytes = size
 		default:
-			return PrometheusStorageSettings{}, fmt.Errorf("未知的指标设置：%s", key)
+			return PrometheusStorageSettings{}, fmt.Errorf("未知的数据存储设置：%s", key)
 		}
 	}
 	return settings, validatePrometheusStorageSettings(settings)

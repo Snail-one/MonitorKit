@@ -120,11 +120,11 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 		if component.name == "prometheus" {
 			fields = append(fields,
 				ui.Field{Label: "远程写入", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "接收地址：/api/v1/write；mTLS 推荐，HTTP 需确认风险"},
-				ui.Field{Label: "指标设置", Value: metricSettingsSummary(configuration.MetricSettings), Detail: metricSettingsDetail(configuration.MetricSettings)},
+				ui.Field{Label: "数据存储设置", Value: metricSettingsSummary(configuration.MetricSettings), Detail: metricSettingsDetail(configuration.MetricSettings)},
 			)
 		}
 		if component.name == "loki" {
-			fields = append(fields, ui.Field{Label: "日志设置", Value: logSettingsSummary(configuration.LogSettings), Detail: logSettingsDetail(configuration.LogSettings)})
+			fields = append(fields, ui.Field{Label: "数据存储设置", Value: logSettingsSummary(configuration.LogSettings), Detail: logSettingsDetail(configuration.LogSettings)})
 		}
 		fields = append(fields, ui.Field{Label: "传输安全", Value: transport})
 		a.ui.Card(ui.Neutral, component.description, fields...)
@@ -236,11 +236,11 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		if component.name == "prometheus" {
 			configFields = append(configFields,
 				ui.Field{Label: "远程写入接收", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "独立开关；HTTP 模式开启时会显示明文传输警告"},
-				ui.Field{Label: "指标设置", Value: metricSettingsSummary(configuration.MetricSettings), Detail: metricSettingsDetail(configuration.MetricSettings)},
+				ui.Field{Label: "数据存储设置", Value: metricSettingsSummary(configuration.MetricSettings), Detail: metricSettingsDetail(configuration.MetricSettings)},
 			)
 		}
 		if component.name == "loki" {
-			configFields = append(configFields, ui.Field{Label: "日志设置", Value: logSettingsSummary(configuration.LogSettings), Detail: logSettingsDetail(configuration.LogSettings)})
+			configFields = append(configFields, ui.Field{Label: "数据存储设置", Value: logSettingsSummary(configuration.LogSettings), Detail: logSettingsDetail(configuration.LogSettings)})
 		}
 		a.ui.Card(ui.Neutral, component.label+"配置", configFields...)
 		a.ui.Blank()
@@ -255,11 +255,11 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 			if configuration.RemoteWriteEnabled {
 				remoteWriteLabel = "关闭远程写入"
 			}
-			a.ui.OptionLive("6", "指标设置", metricSettingsBadge(configuration.MetricSettings), !configuration.MetricSettings.IsDefault())
+			a.ui.OptionLive("6", "数据存储设置", metricSettingsBadge(configuration.MetricSettings), !configuration.MetricSettings.IsDefault())
 			a.ui.OptionState("7", remoteWriteLabel, configuration.RemoteWriteEnabled)
 		}
 		if component.name == "loki" {
-			a.ui.OptionLive("6", "日志设置", logRetentionBadge(configuration.LogSettings), configuration.LogSettings.Retention > 0)
+			a.ui.OptionLive("6", "数据存储设置", logRetentionBadge(configuration.LogSettings), configuration.LogSettings.Retention > 0)
 		}
 		if configuration.MTLSEnabled && component.name == "prometheus" {
 			hint := "保留证书"
@@ -432,7 +432,7 @@ func (a *App) prometheusMetricSettingsMenu(ctx context.Context, component compon
 		}
 		settings := configuration.MetricSettings
 		a.ui.Clear()
-		a.ui.Title(component.label, "配置管理", "指标设置")
+		a.ui.Title(component.label, "配置管理", "数据存储设置")
 		a.ui.Card(ui.Neutral, "当前 Prometheus 存储策略",
 			ui.Field{Label: "保留期", Value: metricRetentionText(settings), Detail: metricRetentionDetail(settings)},
 			ui.Field{Label: "磁盘上限", Value: metricSizeText(settings), Detail: "时间和磁盘上限同时生效，先到的先清理"},
@@ -465,7 +465,7 @@ func (a *App) prometheusMetricSettingsMenu(ctx context.Context, component compon
 
 func (a *App) changePrometheusRetention(ctx context.Context, current manager.PrometheusStorageSettings) {
 	a.ui.Clear()
-	a.ui.Title("Prometheus", "配置管理", "指标设置", "保留期")
+	a.ui.Title("Prometheus", "配置管理", "数据存储设置", "保留期")
 	a.ui.Card(ui.Neutral, "按时间删除过期指标",
 		ui.Field{Label: "默认值", Value: "15 天（Prometheus 上游默认）"},
 		ui.Field{Label: "不限制", Value: "只按磁盘上限清理；两者都关闭时磁盘会持续增长"},
@@ -478,7 +478,7 @@ func (a *App) changePrometheusRetention(ctx context.Context, current manager.Pro
 	a.ui.Option("4", "90 天", "")
 	a.ui.Option("5", "自定义天数", "1-3650")
 	a.ui.Option("6", "不限制", "需配合磁盘上限")
-	a.ui.ExitOption("返回指标设置")
+	a.ui.ExitOption("返回数据存储设置")
 	a.ui.Blank()
 	choice, err := a.ui.Ask("请选择")
 	if err != nil {
@@ -539,7 +539,7 @@ func (a *App) changePrometheusRetention(ctx context.Context, current manager.Pro
 
 func (a *App) changePrometheusSize(ctx context.Context, current manager.PrometheusStorageSettings) {
 	a.ui.Clear()
-	a.ui.Title("Prometheus", "配置管理", "指标设置", "磁盘上限")
+	a.ui.Title("Prometheus", "配置管理", "数据存储设置", "磁盘上限")
 	a.ui.Card(ui.Neutral, "按占用空间删除最旧指标",
 		ui.Field{Label: "默认值", Value: "不限制"},
 		ui.Field{Label: "当前值", Value: metricSizeText(current)},
@@ -552,7 +552,7 @@ func (a *App) changePrometheusSize(ctx context.Context, current manager.Promethe
 	a.ui.Option("4", "100 GB", "")
 	a.ui.Option("5", "自定义 GB", "1-1048576")
 	a.ui.Option("6", "不限制", "只按保留期清理")
-	a.ui.ExitOption("返回指标设置")
+	a.ui.ExitOption("返回数据存储设置")
 	a.ui.Blank()
 	choice, err := a.ui.Ask("请选择")
 	if err != nil {
@@ -609,11 +609,11 @@ func (a *App) resetPrometheusMetricSettings(ctx context.Context) {
 		ui.Field{Label: "保留期", Value: "15 天"},
 		ui.Field{Label: "磁盘上限", Value: "不限制"},
 	)
-	confirmed, err := a.ui.Confirm("确认恢复默认指标设置")
+	confirmed, err := a.ui.Confirm("确认恢复默认数据存储设置")
 	if err != nil || !confirmed {
 		return
 	}
-	a.applyPrometheusMetricSettings(ctx, manager.PrometheusStorageSettings{}, "正在恢复 Prometheus 默认指标设置")
+	a.applyPrometheusMetricSettings(ctx, manager.PrometheusStorageSettings{}, "正在恢复 Prometheus 默认数据存储设置")
 }
 
 func (a *App) applyPrometheusMetricSettings(ctx context.Context, settings manager.PrometheusStorageSettings, progress string) {
@@ -621,15 +621,15 @@ func (a *App) applyPrometheusMetricSettings(ctx context.Context, settings manage
 		return a.manager.ApplyPrometheusStorageSettings(ctx, settings)
 	})
 	if err != nil {
-		a.operationError("Prometheus 指标设置未应用", err)
+		a.operationError("Prometheus 数据存储设置未应用", err)
 		return
 	}
 	configuration, err := a.manager.Configuration("prometheus")
 	if err != nil {
-		a.operationError("指标设置已写入，但读取配置失败", err)
+		a.operationError("数据存储设置已写入，但读取配置失败", err)
 		return
 	}
-	a.ui.Card(ui.Success, "Prometheus 指标设置已应用",
+	a.ui.Card(ui.Success, "Prometheus 数据存储设置已应用",
 		ui.Field{Label: "保留期", Value: metricRetentionText(configuration.MetricSettings), Detail: metricRetentionDetail(configuration.MetricSettings)},
 		ui.Field{Label: "磁盘上限", Value: metricSizeText(configuration.MetricSettings)},
 		ui.Field{Label: "生效方式", Value: "已写入 prometheus.service 并重启"},
@@ -645,7 +645,7 @@ func (a *App) lokiLogSettingsMenu(ctx context.Context, component componentView) 
 		}
 		settings := configuration.LogSettings
 		a.ui.Clear()
-		a.ui.Title(component.label, "配置管理", "日志设置")
+		a.ui.Title(component.label, "配置管理", "数据存储设置")
 		a.ui.Card(ui.Neutral, "当前 Loki 日志策略",
 			ui.Field{Label: "保留期", Value: logRetentionText(settings), Detail: logRetentionDetail(settings)},
 			ui.Field{Label: "摄入速率", Value: logIngestionRateText(settings)},
@@ -680,7 +680,7 @@ func (a *App) lokiLogSettingsMenu(ctx context.Context, component componentView) 
 
 func (a *App) changeLokiRetention(ctx context.Context, current manager.LokiLogSettings) {
 	a.ui.Clear()
-	a.ui.Title("Loki", "配置管理", "日志设置", "保留期")
+	a.ui.Title("Loki", "配置管理", "数据存储设置", "保留期")
 	a.ui.Card(ui.Neutral, "过期日志由 Loki Compactor 删除",
 		ui.Field{Label: "最短时间", Value: "24 小时"},
 		ui.Field{Label: "不限制", Value: "日志会一直写入 /var/lib/loki，直到磁盘耗尽"},
@@ -693,7 +693,7 @@ func (a *App) changeLokiRetention(ctx context.Context, current manager.LokiLogSe
 	a.ui.Option("4", "90 天", "")
 	a.ui.Option("5", "自定义天数", "1-3650")
 	a.ui.Option("6", "不限制", "磁盘持续增长")
-	a.ui.ExitOption("返回日志设置")
+	a.ui.ExitOption("返回数据存储设置")
 	a.ui.Blank()
 	choice, err := a.ui.Ask("请选择")
 	if err != nil {
@@ -762,7 +762,7 @@ func (a *App) changeLokiIngestion(ctx context.Context, current manager.LokiLogSe
 		lineDefault = 256
 	}
 	a.ui.Clear()
-	a.ui.Title("Loki", "配置管理", "日志设置", "摄入限制")
+	a.ui.Title("Loki", "配置管理", "数据存储设置", "摄入限制")
 	a.ui.Card(ui.Neutral, "限制单机 Loki 接收日志的速度和单行大小",
 		ui.Field{Label: "摄入速率", Value: fmt.Sprintf("%d MB/s", rateDefault), Detail: "超过后新日志会被拒绝，直到速率回落"},
 		ui.Field{Label: "突发大小", Value: fmt.Sprintf("%d MB", burstDefault), Detail: "必须不小于摄入速率"},
@@ -814,11 +814,11 @@ func (a *App) resetLokiLogSettings(ctx context.Context) {
 		ui.Field{Label: "保留期", Value: "不限制，已有日志不会被自动删除"},
 		ui.Field{Label: "摄入限制", Value: "使用 Loki 默认值：4 MB/s、突发 6 MB、单行 256 KB"},
 	)
-	confirmed, err := a.ui.Confirm("确认恢复默认日志设置")
+	confirmed, err := a.ui.Confirm("确认恢复默认数据存储设置")
 	if err != nil || !confirmed {
 		return
 	}
-	a.applyLokiLogSettings(ctx, manager.LokiLogSettings{}, "正在恢复 Loki 默认日志设置")
+	a.applyLokiLogSettings(ctx, manager.LokiLogSettings{}, "正在恢复 Loki 默认数据存储设置")
 }
 
 func (a *App) applyLokiLogSettings(ctx context.Context, settings manager.LokiLogSettings, progress string) {
@@ -826,15 +826,15 @@ func (a *App) applyLokiLogSettings(ctx context.Context, settings manager.LokiLog
 		return a.manager.ApplyLokiLogSettings(ctx, settings)
 	})
 	if err != nil {
-		a.operationError("Loki 日志设置未应用", err)
+		a.operationError("Loki 数据存储设置未应用", err)
 		return
 	}
 	configuration, err := a.manager.Configuration("loki")
 	if err != nil {
-		a.operationError("日志设置已写入，但读取配置失败", err)
+		a.operationError("数据存储设置已写入，但读取配置失败", err)
 		return
 	}
-	a.ui.Card(ui.Success, "Loki 日志设置已应用",
+	a.ui.Card(ui.Success, "Loki 数据存储设置已应用",
 		ui.Field{Label: "保留期", Value: logRetentionText(configuration.LogSettings), Detail: logRetentionDetail(configuration.LogSettings)},
 		ui.Field{Label: "摄入限制", Value: logIngestionText(configuration.LogSettings)},
 		ui.Field{Label: "配置文件", Value: "/etc/loki/loki.yml"},
@@ -1763,7 +1763,7 @@ func logSettingsDetail(settings manager.LokiLogSettings) string {
 		return "未设置保留期，磁盘会持续增长"
 	}
 	if !settings.RetentionDeletes {
-		return "已写入保留期，但尚未启用 Compactor 删除；保存一次日志设置即可启用"
+		return "已写入保留期，但尚未启用 Compactor 删除；保存一次数据存储设置即可启用"
 	}
 	return "过期日志由 Loki Compactor 删除"
 }

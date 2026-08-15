@@ -79,7 +79,7 @@ func (m *Manager) applyLokiLogSettingsLocked(ctx context.Context, settings LokiL
 			_ = run(ctx, "systemctl", "restart", "loki.service")
 		}
 		if restoreErr != nil {
-			return fmt.Errorf("%v；恢复原日志设置失败：%w", cause, restoreErr)
+			return fmt.Errorf("%v；恢复原数据存储设置失败：%w", cause, restoreErr)
 		}
 		return cause
 	}
@@ -93,7 +93,7 @@ func (m *Manager) applyLokiLogSettingsLocked(ctx context.Context, settings LokiL
 		return nil
 	}
 	if err := spec.validate(ctx, configPath); err != nil {
-		return rollback(fmt.Errorf("修改日志设置后的配置校验失败：%w", err))
+		return rollback(fmt.Errorf("修改数据存储设置后的配置校验失败：%w", err))
 	}
 	if mtlsEnabledLocked(m, spec.name) {
 		if err := m.validateMTLSConfigLocked(ctx, spec, configPath); err != nil {
@@ -101,7 +101,7 @@ func (m *Manager) applyLokiLogSettingsLocked(ctx context.Context, settings LokiL
 		}
 	}
 	if err := run(ctx, "systemctl", "restart", "loki.service"); err != nil {
-		return rollback(fmt.Errorf("应用日志设置后服务启动失败，已恢复原配置：%w", err))
+		return rollback(fmt.Errorf("应用数据存储设置后服务启动失败，已恢复原配置：%w", err))
 	}
 	return nil
 }
