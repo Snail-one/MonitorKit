@@ -194,7 +194,7 @@ func TestConfigurationMenuShowsPortAndMTLSStateBadges(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := disabled.String()
-	for _, want := range []string{"修改监听端口", "[48680]", "配置或更新 mTLS", "[已关闭]", "开启远程写入"} {
+	for _, want := range []string{"修改监听端口", "[48680]", "配置或更新 mTLS", "[已关闭]", "开启远程写入", "重置配置"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("disabled mTLS menu does not contain %q:\n%s", want, got)
 		}
@@ -571,7 +571,7 @@ func TestLokiConfigurationMenuShowsLogSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"数据存储设置", "[不限制]", "日志大小", "修改 gRPC 端口", "[默认 9095]", "gRPC 端口"} {
+	for _, want := range []string{"数据存储设置", "[不限制]", "日志大小", "修改 gRPC 端口", "[默认 9095]", "gRPC 端口", "重置配置"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Loki configuration menu does not contain %q:\n%s", want, got)
 		}

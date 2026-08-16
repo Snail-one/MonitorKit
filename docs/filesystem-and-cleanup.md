@@ -179,7 +179,9 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 
 添加、修改、启停或删除 node_exporter 接入时，MonitorKit 会更新 `inventory.json` 和 `prometheus.yml` 中带有 `BEGIN/END MONITORKIT MANAGED PROBES` 标记的受管 scrape job。新配置只有通过 `promtool` 校验并成功 reload/restart 后才生效，失败会恢复清单和主配置。删除接入配置会删除该探针在中心端保存的 mTLS 文件，但不会连接远程服务器或卸载远程 node_exporter。
 
-从配置菜单直接编辑 `prometheus.yml` 时，原配置内容只在操作期间保存。新配置通过 `promtool` 校验后执行 reload；失败时即时清理无效修改并恢复原配置，不生成残留文件。配置操作及安装/更新会删除旧版本遗留的同名 `.rejected-*` 普通文件。
+从配置菜单直接编辑 `prometheus.yml` 时，原配置内容只在操作期间保存。新配置通过 `promtool` 校验后，服务已运行才 reload；失败时即时清理无效修改并恢复原配置，不生成残留文件。配置操作及安装/更新会删除旧版本遗留的同名 `.rejected-*` 普通文件。
+
+“重置配置”会按当前程序模板重写 `prometheus.yml` 和 `prometheus.service`，并保留 `listen.port`、mTLS、远程写入开关、`storage.settings` 与探针清单；受管 scrape job 会写回新配置。
 
 普通卸载会：
 
@@ -224,7 +226,9 @@ prometheus 用户与组
 
 首次安装从 `10000-59999` 中为 HTTP 和 gRPC 各选择一个当时可用的随机端口。HTTP 写入 `listen.port` 与 `loki.yml` 的 `http_listen_port`；gRPC 写入 `grpc.port`、`loki.yml` 的 `grpc_listen_port`，并绑定 `127.0.0.1`。更新会读取这两个端口文件并保持不变，同时替换二进制和 systemd unit；已经存在的 `loki.yml` 会保留，但缺少 gRPC 端口时会补写随机端口。存在 `mtls.enabled` 时，新 unit 会继续带有 Loki HTTPS 与客户端证书验证参数。
 
-从配置菜单直接编辑 `loki.yml` 时，会在内存中保存原内容，再使用 Loki 的 `-verify-config=true` 校验并重启。校验或启动失败时即时清理无效修改并恢复原配置，不保留拒绝文件。
+从配置菜单直接编辑 `loki.yml` 时，会在内存中保存原内容，再使用 Loki 的 `-verify-config=true` 校验；服务已运行才重启。校验或启动失败时即时清理无效修改并恢复原配置，不保留拒绝文件。
+
+“重置配置”会按当前程序模板重写 `loki.yml` 和 `loki.service`，并保留 `listen.port`、`grpc.port`、mTLS 文件与 `/var/lib/loki`。主配置中的手工项和保留期设置会回到首次安装默认。
 
 “数据存储设置”只改写 `loki.yml` 中的 `limits_config` 与 `compactor`，不另建开关文件。首次安装默认不写保留期。设置保留期后会启用 Compactor，并在 `/var/lib/loki/compactor/`（或配置中的 `path_prefix/compactor`）写入压缩与删除标记；恢复默认会关掉过期删除，但已有数据目录仍保留到普通卸载或 `--purge`。
 

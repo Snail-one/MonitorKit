@@ -41,6 +41,107 @@ func TestComponentTLSFilesUseCAChainKeyOrder(t *testing.T) {
 	}
 }
 
+func TestResetConfigRewritesLokiDefaultsAndKeepsPort(t *testing.T) {
+	mgr, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := stageComponentConfig(t, mgr, "loki", "auth_enabled: true\nlimits_config:\n  retention_period: 7d\n")
+	if err := os.MkdirAll(filepath.Dir(mgr.listenPortPath("loki")), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mgr.listenPortPath("loki"), []byte("31876\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mgr.grpcPortPath(), []byte("45231\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.ResetConfig(context.Background(), "loki"); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	for _, want := range []string{
+		"auth_enabled: false",
+		"http_listen_port: 31876",
+		"grpc_listen_address: 127.0.0.1",
+		"grpc_listen_port: 45231",
+		"path_prefix: /var/lib/loki",
+		"allow_structured_metadata: true",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("reset config missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "retention_period:") {
+		t.Fatalf("reset config kept custom retention:\n%s", got)
+	}
+	unit, err := os.ReadFile(mgr.path("/etc/systemd/system/loki.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(unit), "-server.grpc-listen-port=45231") {
+		t.Fatalf("reset unit missing gRPC port:\n%s", unit)
+	}
+}
+
+func TestResetConfigRewritesPrometheusAndKeepsManagedProbes(t *testing.T) {
+	mgr, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := stageComponentConfig(t, mgr, "prometheus", "global: {}\nscrape_configs: []\n# custom leftover\n")
+	if err := os.MkdirAll(filepath.Dir(mgr.listenPortPath("prometheus")), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mgr.listenPortPath("prometheus"), []byte("19090\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(mgr.probeInventoryPath()), 0755); err != nil {
+		t.Fatal(err)
+	}
+	inventory := `{"version":1,"probes":[{"id":"node-a","name":"node-a","type":"node_exporter","host":"10.0.0.8","port":9100,"enabled":true,"mtls":false,"created_at":"now"}]}` + "\n"
+	if err := os.WriteFile(mgr.probeInventoryPath(), []byte(inventory), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.ResetConfig(context.Background(), "prometheus"); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(content)
+	for _, want := range []string{
+		"scrape_interval: 15s",
+		`targets: ["127.0.0.1:19090"]`,
+		probeBlockBegin,
+		`job_name: "monitorkit-node-node-a"`,
+		`"10.0.0.8:9100"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("reset config missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "custom leftover") {
+		t.Fatalf("reset config kept handwritten leftover:\n%s", got)
+	}
+}
+
+func TestResetConfigRequiresInstalledComponent(t *testing.T) {
+	mgr, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = mgr.ResetConfig(context.Background(), "loki")
+	if err == nil || !strings.Contains(err.Error(), "请先安装") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestEditConfigRestoresOriginalWhenEditorFails(t *testing.T) {
 	mgr, err := New(t.TempDir())
 	if err != nil {

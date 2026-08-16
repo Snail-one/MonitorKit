@@ -182,10 +182,7 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 	report(6, "写入配置与 systemd 服务", "/etc/"+name+" · /var/lib/"+name)
 	configPath := filepath.Join(configDir, name+".yml")
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
-		config := spec.config("/var/lib/"+name, listenPort)
-		if name == "loki" {
-			config = lokiConfigWithGRPC("/var/lib/"+name, listenPort, grpcPort)
-		}
+		config := m.generatedMainConfigLocked(name, listenPort, grpcPort)
 		if err := atomicWrite(configPath, []byte(config), 0640); err != nil {
 			return Status{}, fmt.Errorf("写入默认配置：%w", err)
 		}

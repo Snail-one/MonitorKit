@@ -24,6 +24,7 @@ func TestRunRequiresRoot(t *testing.T) {
 		{"status"},
 		{"install", "loki"},
 		{"start", "loki"},
+		{"reset-config", "loki"},
 		{"update"},
 	} {
 		err := run(args)

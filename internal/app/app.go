@@ -394,6 +394,7 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 			}
 			a.ui.Option("8", "关闭 mTLS", hint)
 		}
+		a.ui.Option("9", "重置配置", "恢复程序默认主配置")
 		a.ui.ExitOption("返回" + component.label)
 		a.ui.Blank()
 
@@ -444,6 +445,8 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 				a.ui.InvalidChoice()
 				a.ui.Pause()
 			}
+		case "9":
+			a.resetComponentConfig(ctx, component)
 		default:
 			a.ui.InvalidChoice()
 			a.ui.Pause()
@@ -1048,6 +1051,38 @@ func (a *App) validateComponentConfig(ctx context.Context, component componentVi
 		return
 	}
 	a.ui.Card(ui.Success, component.label+"配置校验通过", ui.Field{Label: "配置文件", Value: component.configPath})
+	a.ui.Pause()
+}
+
+func (a *App) resetComponentConfig(ctx context.Context, component componentView) {
+	a.ui.Clear()
+	a.ui.Title(component.label, "配置管理", "重置配置")
+	fields := []ui.Field{
+		{Label: "将覆盖", Value: component.configPath + " 与 systemd unit"},
+		{Label: "生成方式", Value: "与当前程序首次安装相同的默认配置模板"},
+		{Label: "保留", Value: "监听端口、gRPC 端口、mTLS 证书、远程写入开关、存储设置文件、探针清单、历史数据"},
+		{Label: "恢复默认", Value: "主配置里的手工修改；Loki 的保留期与摄入限制"},
+	}
+	if component.name == "prometheus" {
+		fields = append(fields, ui.Field{Label: "探针", Value: "受管 node_exporter 接入会写回新配置"})
+	}
+	a.ui.Card(ui.Warning, "用程序内置默认配置替换当前主配置", fields...)
+	a.ui.Blank()
+	confirmed, err := a.ui.Confirm("确认重置" + component.label + "配置")
+	if err != nil || !confirmed {
+		return
+	}
+	err = a.ui.During("正在重置"+component.label+"配置", func() error {
+		return a.manager.ResetConfig(ctx, component.name)
+	})
+	if err != nil {
+		a.operationError(component.label+"配置重置失败", err)
+		return
+	}
+	a.ui.Card(ui.Success, component.label+"配置已重置为程序默认",
+		ui.Field{Label: "配置文件", Value: component.configPath},
+		ui.Field{Label: "提示", Value: "服务若未运行，请到服务管理中启动或重启"},
+	)
 	a.ui.Pause()
 }
 

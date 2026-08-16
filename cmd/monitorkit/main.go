@@ -30,6 +30,7 @@ const usage = `MonitorKit 中心端管理程序
   sudo monitorkit stop <prometheus|loki>
   sudo monitorkit disable <prometheus|loki>
   sudo monitorkit restart <prometheus|loki>
+  sudo monitorkit reset-config <prometheus|loki>
   sudo monitorkit status [prometheus|loki]
 
 环境变量：
@@ -121,6 +122,16 @@ func run(args []string) error {
 			return err
 		}
 		fmt.Printf("%s 已%s\n", component, map[string]string{"start": "启动并开启开机自启", "stop": "停止", "disable": "关闭开机自启", "restart": "重启"}[args[0]])
+		return nil
+	case "reset-config":
+		component, _, err := componentArg(args[1:])
+		if err != nil {
+			return err
+		}
+		if err := mgr.ResetConfig(context.Background(), component); err != nil {
+			return err
+		}
+		fmt.Printf("%s 配置已重置为程序默认\n", component)
 		return nil
 	case "uninstall":
 		fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)

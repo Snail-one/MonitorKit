@@ -93,6 +93,96 @@ func (m *Manager) Configuration(name string) (Configuration, error) {
 	}, nil
 }
 
+// ResetConfig overwrites the component's main YAML and systemd unit with the
+// current program defaults, keeping managed ports, TLS, probe inventory and
+// independent switch files. A running service is reloaded; a stopped one stays down.
+func (m *Manager) ResetConfig(ctx context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	spec, configPath, err := m.configTargetLocked(name)
+	if err != nil {
+		return err
+	}
+	name = spec.name
+	listenPort, err := m.ensureListenPortLocked(name)
+	if err != nil {
+		return err
+	}
+	var grpcPort int
+	if name == "loki" {
+		grpcPort, err = m.ensureGRPCPortLocked()
+		if err != nil {
+			return err
+		}
+	}
+	content := m.generatedMainConfigLocked(name, listenPort, grpcPort)
+	if name == "prometheus" {
+		inventory, invErr := m.readProbeInventoryLocked()
+		if invErr != nil {
+			return invErr
+		}
+		rendered, renderErr := renderProbeScrapeConfigs([]byte(content), inventory.Probes)
+		if renderErr != nil {
+			return fmt.Errorf("重新写入受管探针：%w", renderErr)
+		}
+		content = string(rendered)
+	}
+
+	unitPath := m.path("/etc/systemd/system/" + name + ".service")
+	if err := os.MkdirAll(filepath.Dir(unitPath), 0755); err != nil {
+		return err
+	}
+	info, err := os.Stat(configPath)
+	if err != nil {
+		return err
+	}
+	snapshots, err := snapshotFiles([]string{configPath, unitPath})
+	if err != nil {
+		return err
+	}
+	wasActive := m.serviceActiveLocked(ctx, name)
+	rollback := func(cause error) error {
+		restoreErr := restoreSnapshots(snapshots)
+		if m.isLiveRoot() {
+			_ = m.fixConfigOwnershipLocked(ctx, spec, configPath)
+		}
+		m.restoreRunningServiceLocked(ctx, name, wasActive)
+		if restoreErr != nil {
+			return fmt.Errorf("%v；恢复原配置失败：%w", cause, restoreErr)
+		}
+		return cause
+	}
+
+	if err := atomicWrite(configPath, []byte(content), info.Mode().Perm()); err != nil {
+		return rollback(err)
+	}
+	unit, err := m.componentUnitLocked(spec, mtlsEnabledLocked(m, name), managedRemoteWriteEnabled(m, name), listenPort)
+	if err != nil {
+		return rollback(err)
+	}
+	if err := atomicWrite(unitPath, []byte(unit), 0644); err != nil {
+		return rollback(err)
+	}
+	if err := m.fixConfigOwnershipLocked(ctx, spec, configPath); err != nil {
+		return rollback(err)
+	}
+	if !m.isLiveRoot() {
+		return nil
+	}
+	if err := spec.validate(ctx, configPath); err != nil {
+		return rollback(fmt.Errorf("重置后的配置校验失败：%w", err))
+	}
+	if mtlsEnabledLocked(m, name) {
+		if err := m.validateMTLSConfigLocked(ctx, spec, configPath); err != nil {
+			return rollback(err)
+		}
+	}
+	if err := m.applyRunningServiceLocked(ctx, name, wasActive, true); err != nil {
+		return rollback(fmt.Errorf("重置配置后应用服务失败：%w", err))
+	}
+	return nil
+}
+
 func (m *Manager) EditConfig(ctx context.Context, name string, edit EditFunc) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

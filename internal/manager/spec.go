@@ -69,6 +69,13 @@ func platformArch() (string, error) {
 	}
 }
 
+func (m *Manager) generatedMainConfigLocked(name string, listenPort, grpcPort int) string {
+	if name == "loki" {
+		return lokiConfigWithGRPC("/var/lib/loki", listenPort, grpcPort)
+	}
+	return prometheusConfig("/var/lib/prometheus", listenPort)
+}
+
 func prometheusConfig(_ string, port int) string {
 	return fmt.Sprintf(`global:
   scrape_interval: 15s
