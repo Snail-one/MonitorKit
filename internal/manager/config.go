@@ -19,6 +19,7 @@ type Configuration struct {
 	TLSDir             string
 	MTLSEnabled        bool
 	ListenPort         int
+	GRPCListenPort     int
 	RemoteWriteEnabled bool
 	LogSettings        LokiLogSettings
 	MetricSettings     PrometheusStorageSettings
@@ -53,6 +54,13 @@ func (m *Manager) Configuration(name string) (Configuration, error) {
 	if err != nil {
 		return Configuration{}, err
 	}
+	var grpcPort int
+	if name == "loki" {
+		grpcPort, _, err = m.configuredGRPCPortLocked()
+		if err != nil {
+			return Configuration{}, err
+		}
+	}
 	var logSettings LokiLogSettings
 	var metricSettings PrometheusStorageSettings
 	if name == "loki" {
@@ -77,6 +85,7 @@ func (m *Manager) Configuration(name string) (Configuration, error) {
 		TLSDir:             m.path("/etc/" + name + "/tls"),
 		MTLSEnabled:        mtlsEnabledLocked(m, name),
 		ListenPort:         listenPort,
+		GRPCListenPort:     grpcPort,
 		RemoteWriteEnabled: managedRemoteWriteEnabled(m, name),
 		LogSettings:        logSettings,
 		MetricSettings:     metricSettings,
@@ -260,7 +269,11 @@ func (m *Manager) ConfigureMTLS(ctx context.Context, name string, edit TLSEditFu
 			return rollback(err, false)
 		}
 	}
-	if err := atomicWrite(unitPath, []byte(m.componentUnitLocked(spec, true, remoteWriteEnabledLocked(m), listenPort)), 0644); err != nil {
+	unit, err := m.componentUnitLocked(spec, true, remoteWriteEnabledLocked(m), listenPort)
+	if err != nil {
+		return rollback(err, false)
+	}
+	if err := atomicWrite(unitPath, []byte(unit), 0644); err != nil {
 		return rollback(err, false)
 	}
 	if err := atomicWrite(markerPath, []byte("enabled\n"), 0640); err != nil {
@@ -297,7 +310,11 @@ func (m *Manager) DisableMTLS(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := atomicWrite(unitPath, []byte(m.componentUnitLocked(spec, false, remoteWriteEnabled, listenPort)), 0644); err != nil {
+	unit, err := m.componentUnitLocked(spec, false, remoteWriteEnabled, listenPort)
+	if err != nil {
+		return err
+	}
+	if err := atomicWrite(unitPath, []byte(unit), 0644); err != nil {
 		return err
 	}
 	if err := os.Remove(markerPath); err != nil && !errors.Is(err, os.ErrNotExist) {

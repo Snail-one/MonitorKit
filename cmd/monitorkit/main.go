@@ -92,6 +92,10 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
+		if result.GRPCListenPort > 0 {
+			fmt.Printf("%s %s 安装完成，服务状态：%s，监听端口：%d，gRPC 端口：%d\n", result.Name, result.Version, result.ServiceState, result.ListenPort, result.GRPCListenPort)
+			return nil
+		}
 		fmt.Printf("%s %s 安装完成，服务状态：%s，监听端口：%d\n", result.Name, result.Version, result.ServiceState, result.ListenPort)
 		return nil
 	case "uninstall":
@@ -121,6 +125,10 @@ func run(args []string) error {
 			status, err := mgr.Status(context.Background(), name)
 			if err != nil {
 				return err
+			}
+			if status.GRPCListenPort > 0 {
+				fmt.Printf("%-10s installed=%-5t service=%s version=%s port=%s grpc=%s\n", status.Name, status.Installed, status.ServiceState, status.Version, displayPort(status.ListenPort), displayPort(status.GRPCListenPort))
+				continue
 			}
 			fmt.Printf("%-10s installed=%-5t service=%s version=%s port=%s\n", status.Name, status.Installed, status.ServiceState, status.Version, displayPort(status.ListenPort))
 		}

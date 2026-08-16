@@ -150,8 +150,8 @@ Prometheus 和 Loki 的管理菜单均提供“配置管理”：
 - 校验成功后自动 reload/restart；失败时即时清理无效修改并恢复原配置，不生成残留文件。
 - 配置操作及组件安装/更新会清理旧版本遗留的同名 `.rejected-*` 普通文件。
 - 可以单独校验当前配置或重启服务应用配置。
-- 首次安装会分别生成 `10000-59999` 范围内的可用随机监听端口，并写入 `/etc/prometheus/listen.port` 或 `/etc/loki/listen.port`；更新时保持不变。
-- 可以输入指定端口或重新随机生成端口；变更会检查端口占用，失败时恢复原配置和原端口。修改后需要同步更新探针中心地址及防火墙规则。
+- 首次安装会分别生成 `10000-59999` 范围内的可用随机监听端口，并写入 `/etc/prometheus/listen.port` 或 `/etc/loki/listen.port`；Loki 还会为内部 gRPC 再生成一个随机端口，写入 `/etc/loki/grpc.port` 和 `loki.yml`，并绑定 `127.0.0.1`。更新时这些端口保持不变。
+- 可以输入指定端口或重新随机生成端口；Loki 的配置菜单可分别修改 HTTP 监听端口和 gRPC 端口。变更会检查端口占用，失败时恢复原配置和原端口。修改 HTTP 端口后需要同步更新探针中心地址及防火墙规则；gRPC 仅供 Loki 内部通信，探针无需修改。
 - 可以配置、更新或关闭服务端 mTLS；关闭和普通卸载均保留证书，`purge` 才会删除。
 - Prometheus 的远程写入接收使用独立开关且默认关闭。mTLS 模式可直接确认开启；HTTP 模式也允许开启，但界面会警告指标与请求未加密并要求再次确认。关闭 mTLS 会保留远程写入开关状态，已开放的接收端会转为 HTTP。
 - Prometheus 和 Loki 的配置菜单都提供“数据存储设置”。Prometheus 可选择 7/15/30/90 天、自定义天数或不限制保留期，并可设置 10/20/50/100 GB 或自定义磁盘上限。时间和磁盘上限同时生效，先到先清理。设置会写入 `/etc/prometheus/storage.settings` 和 `prometheus.service` 的 `--storage.tsdb.retention.time` / `--storage.tsdb.retention.size`；更新、改端口、开关 mTLS 或远程写入时都会保留。恢复默认后回到上游 15 天、无磁盘上限。首次安装不写自定义参数。

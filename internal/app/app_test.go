@@ -108,8 +108,8 @@ func TestComponentMenusShowDataUsage(t *testing.T) {
 	if err := application.componentMenu(context.Background(), componentViews["loki"]); err != nil {
 		t.Fatal(err)
 	}
-	if got := lokiOut.String(); !strings.Contains(got, "日志大小") || !strings.Contains(got, "10 B") {
-		t.Fatalf("Loki main panel missing size:\n%s", got)
+	if got := lokiOut.String(); !strings.Contains(got, "日志大小") || !strings.Contains(got, "10 B") || !strings.Contains(got, "gRPC 端口") || !strings.Contains(got, "默认 9095") {
+		t.Fatalf("Loki main panel missing size or gRPC port:\n%s", got)
 	}
 }
 
@@ -192,6 +192,15 @@ func TestProbeEnabledTextMatchesLiveBadgeLabels(t *testing.T) {
 	}
 	if got := probeEnabledText(false); got != "已停用" {
 		t.Fatalf("disabled = %q", got)
+	}
+}
+
+func TestGRPCPortTextUsesLokiDefault(t *testing.T) {
+	if got := grpcPortText(0); got != "默认 9095" {
+		t.Fatalf("unset grpc = %q", got)
+	}
+	if got := grpcPortText(45231); got != "45231" {
+		t.Fatalf("set grpc = %q", got)
 	}
 }
 
@@ -528,7 +537,7 @@ func TestLokiConfigurationMenuShowsLogSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"数据存储设置", "[不限制]", "日志大小"} {
+	for _, want := range []string{"数据存储设置", "[不限制]", "日志大小", "修改 gRPC 端口", "[默认 9095]", "gRPC 端口"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Loki configuration menu does not contain %q:\n%s", want, got)
 		}

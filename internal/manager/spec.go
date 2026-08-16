@@ -45,7 +45,9 @@ func registeredSpecs() []componentSpec {
 				return fmt.Sprintf("loki-linux-%s.zip", arch)
 			},
 			config: lokiConfig,
-			unit:   lokiUnit,
+			unit: func(mtls, remoteWrite bool, port int) string {
+				return lokiUnit(mtls, port, 0)
+			},
 			validate: func(ctx context.Context, configPath string) error {
 				return run(ctx, "/usr/local/bin/loki", "-config.file="+configPath, "-verify-config=true")
 			},
@@ -80,11 +82,19 @@ scrape_configs:
 }
 
 func lokiConfig(dataDir string, port int) string {
+	return lokiConfigWithGRPC(dataDir, port, 0)
+}
+
+func lokiConfigWithGRPC(dataDir string, httpPort, grpcPort int) string {
+	grpcBlock := ""
+	if grpcPort > 0 {
+		grpcBlock = fmt.Sprintf("\n  grpc_listen_address: 127.0.0.1\n  grpc_listen_port: %d", grpcPort)
+	}
 	return fmt.Sprintf(`auth_enabled: false
 
 server:
   http_listen_address: 0.0.0.0
-  http_listen_port: %d
+  http_listen_port: %d%s
 
 common:
   path_prefix: %s
@@ -109,13 +119,17 @@ schema_config:
 
 limits_config:
   allow_structured_metadata: true
-`, port, dataDir, dataDir, dataDir)
+`, httpPort, grpcBlock, dataDir, dataDir, dataDir)
 }
 
-func lokiUnit(mtls, _ bool, port int) string {
+func lokiUnit(mtls bool, httpPort, grpcPort int) string {
 	tlsArguments := ""
 	if mtls {
 		tlsArguments = " -server.http-tls-cert-path=/etc/loki/tls/server.crt -server.http-tls-key-path=/etc/loki/tls/server.key -server.http-tls-client-auth=RequireAndVerifyClientCert -server.http-tls-ca-path=/etc/loki/tls/client-ca.crt"
+	}
+	grpcArguments := ""
+	if grpcPort > 0 {
+		grpcArguments = fmt.Sprintf(" -server.grpc-listen-address=127.0.0.1 -server.grpc-listen-port=%d", grpcPort)
 	}
 	return fmt.Sprintf(`[Unit]
 Description=Grafana Loki log server
@@ -126,7 +140,7 @@ After=network-online.target
 User=loki
 Group=loki
 Type=simple
-ExecStart=/usr/local/bin/loki -config.file=/etc/loki/loki.yml -server.http-listen-address=0.0.0.0 -server.http-listen-port=%d%s
+ExecStart=/usr/local/bin/loki -config.file=/etc/loki/loki.yml -server.http-listen-address=0.0.0.0 -server.http-listen-port=%d%s%s
 Restart=on-failure
 RestartSec=5s
 NoNewPrivileges=true
@@ -137,5 +151,5 @@ ReadWritePaths=/var/lib/loki
 
 [Install]
 WantedBy=multi-user.target
-`, port, tlsArguments)
+`, httpPort, grpcArguments, tlsArguments)
 }

@@ -24,11 +24,12 @@ type Manager struct {
 }
 
 type Status struct {
-	Name         string `json:"name"`
-	Installed    bool   `json:"installed"`
-	Version      string `json:"version,omitempty"`
-	ServiceState string `json:"service_state"`
-	ListenPort   int    `json:"listen_port,omitempty"`
+	Name           string `json:"name"`
+	Installed      bool   `json:"installed"`
+	Version        string `json:"version,omitempty"`
+	ServiceState   string `json:"service_state"`
+	ListenPort     int    `json:"listen_port,omitempty"`
+	GRPCListenPort int    `json:"grpc_listen_port,omitempty"`
 }
 
 // InstallProgress describes a visible phase of a component installation.
@@ -158,6 +159,13 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 	if err != nil {
 		return Status{}, err
 	}
+	var grpcPort int
+	if name == "loki" {
+		grpcPort, err = m.ensureGRPCPortLocked()
+		if err != nil {
+			return Status{}, err
+		}
+	}
 
 	report(5, "安装程序文件", strings.Join(spec.binaries, "、"))
 	if m.isLiveRoot() {
@@ -173,17 +181,29 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 	report(6, "写入配置与 systemd 服务", "/etc/"+name+" · /var/lib/"+name)
 	configPath := filepath.Join(configDir, name+".yml")
 	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
-		if err := atomicWrite(configPath, []byte(spec.config("/var/lib/"+name, listenPort)), 0640); err != nil {
+		config := spec.config("/var/lib/"+name, listenPort)
+		if name == "loki" {
+			config = lokiConfigWithGRPC("/var/lib/"+name, listenPort, grpcPort)
+		}
+		if err := atomicWrite(configPath, []byte(config), 0640); err != nil {
 			return Status{}, fmt.Errorf("写入默认配置：%w", err)
 		}
 	} else if err != nil {
 		return Status{}, fmt.Errorf("检查配置文件：%w", err)
+	} else if name == "loki" {
+		if err := m.applyLokiGRPCPortLocked(configPath, grpcPort); err != nil {
+			return Status{}, fmt.Errorf("写入 Loki gRPC 端口：%w", err)
+		}
 	}
 	_ = removeRejectedConfigs(configPath)
 	unitPath := filepath.Join(unitDir, name+".service")
 	mtlsEnabled := mtlsEnabledLocked(m, name)
 	remoteWriteEnabled := managedRemoteWriteEnabled(m, name)
-	if err := atomicWrite(unitPath, []byte(m.componentUnitLocked(spec, mtlsEnabled, remoteWriteEnabled, listenPort)), 0644); err != nil {
+	unit, err := m.componentUnitLocked(spec, mtlsEnabled, remoteWriteEnabled, listenPort)
+	if err != nil {
+		return Status{}, err
+	}
+	if err := atomicWrite(unitPath, []byte(unit), 0644); err != nil {
 		return Status{}, fmt.Errorf("写入 systemd 单元：%w", err)
 	}
 
@@ -279,6 +299,13 @@ func (m *Manager) statusLocked(ctx context.Context, name, knownVersion string) (
 		return Status{}, err
 	}
 	status.ListenPort = listenPort
+	if name == "loki" {
+		grpcPort, _, err := m.configuredGRPCPortLocked()
+		if err != nil {
+			return Status{}, err
+		}
+		status.GRPCListenPort = grpcPort
+	}
 	if _, err := os.Stat(binaryPath); errors.Is(err, os.ErrNotExist) {
 		return status, nil
 	} else if err != nil {

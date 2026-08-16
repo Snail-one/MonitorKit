@@ -115,15 +115,19 @@ func (m *Manager) applyPrometheusStorageSettingsLocked(ctx context.Context, sett
 	return nil
 }
 
-func (m *Manager) componentUnitLocked(spec componentSpec, mtls, remoteWrite bool, port int) string {
+func (m *Manager) componentUnitLocked(spec componentSpec, mtls, remoteWrite bool, port int) (string, error) {
 	if spec.name == "prometheus" {
 		settings, err := m.prometheusStorageSettingsLocked()
 		if err != nil {
 			settings = PrometheusStorageSettings{}
 		}
-		return prometheusUnitWithStorage(mtls, remoteWrite, port, settings)
+		return prometheusUnitWithStorage(mtls, remoteWrite, port, settings), nil
 	}
-	return spec.unit(mtls, remoteWrite, port)
+	grpcPort, _, err := m.configuredGRPCPortLocked()
+	if err != nil {
+		return "", err
+	}
+	return lokiUnit(mtls, port, grpcPort), nil
 }
 
 func (m *Manager) prometheusStorageSettingsLocked() (PrometheusStorageSettings, error) {

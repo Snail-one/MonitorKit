@@ -115,8 +115,11 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 			ui.Field{Label: "当前版本", Value: valueOr(status.Version, "—")},
 			ui.Field{Label: "配置文件", Value: component.configPath},
 			ui.Field{Label: "监听端口", Value: portText(configuration.ListenPort)},
-			ui.Field{Label: "服务地址", Value: componentAddress(configuration.MTLSEnabled, configuration.ListenPort)},
 		}
+		if component.name == "loki" {
+			fields = append(fields, ui.Field{Label: "gRPC 端口", Value: grpcPortText(configuration.GRPCListenPort), Detail: "仅本机内部通信，探针无需填写"})
+		}
+		fields = append(fields, ui.Field{Label: "服务地址", Value: componentAddress(configuration.MTLSEnabled, configuration.ListenPort)})
 		if component.name == "prometheus" {
 			fields = append(fields,
 				ui.Field{Label: "远程写入", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "接收地址：/api/v1/write；mTLS 推荐，HTTP 需确认风险"},
@@ -234,9 +237,14 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		configFields := []ui.Field{
 			{Label: "主配置", Value: configuration.Path},
 			{Label: "监听端口", Value: portText(configuration.ListenPort)},
-			{Label: "mTLS", Value: mtlsStatus},
-			{Label: "证书目录", Value: configuration.TLSDir},
 		}
+		if component.name == "loki" {
+			configFields = append(configFields, ui.Field{Label: "gRPC 端口", Value: grpcPortText(configuration.GRPCListenPort), Detail: "仅本机内部通信，探针无需填写"})
+		}
+		configFields = append(configFields,
+			ui.Field{Label: "mTLS", Value: mtlsStatus},
+			ui.Field{Label: "证书目录", Value: configuration.TLSDir},
+		)
 		if component.name == "prometheus" {
 			configFields = append(configFields,
 				ui.Field{Label: "远程写入接收", Value: enabledText(configuration.RemoteWriteEnabled), Detail: "独立开关；HTTP 模式开启时会显示明文传输警告"},
@@ -268,15 +276,14 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		}
 		if component.name == "loki" {
 			a.ui.OptionLive("6", "数据存储设置", logRetentionBadge(configuration.LogSettings), configuration.LogSettings.Retention > 0)
+			a.ui.OptionLive("7", "修改 gRPC 端口", grpcPortText(configuration.GRPCListenPort), true)
 		}
-		if configuration.MTLSEnabled && component.name == "prometheus" {
+		if configuration.MTLSEnabled {
 			hint := "保留证书"
-			if configuration.RemoteWriteEnabled {
+			if component.name == "prometheus" && configuration.RemoteWriteEnabled {
 				hint = "远程写入转为 HTTP"
 			}
 			a.ui.Option("8", "关闭 mTLS", hint)
-		} else if configuration.MTLSEnabled {
-			a.ui.Option("7", "关闭 mTLS", "保留证书")
 		}
 		a.ui.ExitOption("返回" + component.label)
 		a.ui.Blank()
@@ -315,14 +322,14 @@ func (a *App) configurationMenu(ctx context.Context, component componentView) er
 		case "7":
 			if component.name == "prometheus" {
 				a.toggleRemoteWrite(ctx, component, configuration)
-			} else if configuration.MTLSEnabled {
-				a.disableComponentMTLS(ctx, component)
+			} else if component.name == "loki" {
+				a.changeLokiGRPCPort(ctx, component, configuration.GRPCListenPort)
 			} else {
 				a.ui.InvalidChoice()
 				a.ui.Pause()
 			}
 		case "8":
-			if component.name == "prometheus" && configuration.MTLSEnabled {
+			if configuration.MTLSEnabled {
 				a.disableComponentMTLS(ctx, component)
 			} else {
 				a.ui.InvalidChoice()
@@ -428,6 +435,48 @@ func (a *App) changeComponentPort(ctx context.Context, component componentView, 
 		ui.Field{Label: "新端口", Value: strconv.Itoa(configuration.ListenPort)},
 		ui.Field{Label: "服务地址", Value: componentAddress(configuration.MTLSEnabled, configuration.ListenPort)},
 		ui.Field{Label: "提示", Value: "请同步更新探针中的中心地址"},
+	)
+	a.ui.Pause()
+}
+
+func (a *App) changeLokiGRPCPort(ctx context.Context, component componentView, currentPort int) {
+	value, err := a.ui.Ask("输入新 gRPC 端口（1024-65535，输入 r 随机生成）")
+	if err != nil {
+		return
+	}
+	var port int
+	if strings.EqualFold(strings.TrimSpace(value), "r") {
+		port, err = a.manager.RandomGRPCPort()
+	} else {
+		port, err = strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			err = fmt.Errorf("请输入 1024-65535 之间的端口，或输入 r")
+		}
+	}
+	if err != nil {
+		a.operationError("无法设置 Loki gRPC 端口", err)
+		return
+	}
+	confirmed, err := a.ui.Confirm(fmt.Sprintf("确认将 Loki gRPC 端口从 %s 修改为 %d", grpcPortText(currentPort), port))
+	if err != nil || !confirmed {
+		return
+	}
+	err = a.ui.During("正在修改 Loki gRPC 端口", func() error {
+		return a.manager.ChangeGRPCListenPort(ctx, component.name, port)
+	})
+	if err != nil {
+		a.operationError("Loki gRPC 端口修改失败", err)
+		return
+	}
+	configuration, err := a.manager.Configuration(component.name)
+	if err != nil {
+		a.operationError("Loki gRPC 端口已修改，但读取配置失败", err)
+		return
+	}
+	a.ui.Card(ui.Success, "Loki gRPC 端口已修改",
+		ui.Field{Label: "新端口", Value: strconv.Itoa(configuration.GRPCListenPort)},
+		ui.Field{Label: "监听地址", Value: "127.0.0.1:" + strconv.Itoa(configuration.GRPCListenPort)},
+		ui.Field{Label: "提示", Value: "仅供 Loki 内部通信，探针和 Grafana 无需修改"},
 	)
 	a.ui.Pause()
 }
@@ -1679,6 +1728,13 @@ func componentAddress(mtls bool, port int) string {
 func portText(port int) string {
 	if port == 0 {
 		return "安装时随机生成"
+	}
+	return strconv.Itoa(port)
+}
+
+func grpcPortText(port int) string {
+	if port == 0 {
+		return "默认 9095"
 	}
 	return strconv.Itoa(port)
 }

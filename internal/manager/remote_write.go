@@ -49,7 +49,11 @@ func (m *Manager) SetRemoteWrite(ctx context.Context, name string, enabled bool)
 		return cause
 	}
 
-	if err := atomicWrite(unitPath, []byte(m.componentUnitLocked(spec, mtlsEnabled, enabled, listenPort)), 0644); err != nil {
+	unit, err := m.componentUnitLocked(spec, mtlsEnabled, enabled, listenPort)
+	if err != nil {
+		return rollback(err)
+	}
+	if err := atomicWrite(unitPath, []byte(unit), 0644); err != nil {
 		return rollback(err)
 	}
 	if enabled {

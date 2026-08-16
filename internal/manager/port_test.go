@@ -38,6 +38,26 @@ func TestFreshComponentsReceivePersistentRandomPorts(t *testing.T) {
 			t.Fatalf("%s port changed from %d to %d", name, port, again)
 		}
 	}
+	if err := os.MkdirAll(filepath.Dir(mgr.grpcPortPath()), 0755); err != nil {
+		t.Fatal(err)
+	}
+	grpcPort, err := mgr.ensureGRPCPortLocked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grpcPort < randomPortStart || grpcPort > randomPortEnd {
+		t.Fatalf("loki grpc random port = %d", grpcPort)
+	}
+	if other, exists := ports[grpcPort]; exists {
+		t.Fatalf("loki grpc and %s received the same port %d", other, grpcPort)
+	}
+	again, err := mgr.ensureGRPCPortLocked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != grpcPort {
+		t.Fatalf("loki grpc port changed from %d to %d", grpcPort, again)
+	}
 }
 
 func TestChangeListenPortUpdatesManagedFiles(t *testing.T) {
@@ -84,6 +104,176 @@ func TestChangeListenPortUpdatesManagedFiles(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestChangeGRPCListenPortUpdatesManagedFiles(t *testing.T) {
+	mgr, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const httpPort = 31876
+	const oldGRPC = 19095
+	const newGRPC = 25432
+	configPath := stageComponentConfig(t, mgr, "loki", lokiConfigWithGRPC("/var/lib/loki", httpPort, oldGRPC))
+	unitPath := mgr.path("/etc/systemd/system/loki.service")
+	if err := os.MkdirAll(filepath.Dir(unitPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unitPath, []byte(lokiUnit(false, httpPort, oldGRPC)), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mgr.listenPortPath("loki"), []byte(strconv.Itoa(httpPort)+"\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mgr.grpcPortPath(), []byte(strconv.Itoa(oldGRPC)+"\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.ChangeGRPCListenPort(context.Background(), "loki", newGRPC); err != nil {
+		t.Fatal(err)
+	}
+	portFile, err := os.ReadFile(mgr.grpcPortPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(portFile)) != strconv.Itoa(newGRPC) {
+		t.Fatalf("grpc.port = %q", portFile)
+	}
+	for _, path := range []string{configPath, unitPath} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := string(content)
+		if !strings.Contains(got, strconv.Itoa(newGRPC)) {
+			t.Fatalf("%s does not contain new gRPC port:\n%s", path, got)
+		}
+		if strings.Contains(got, strconv.Itoa(oldGRPC)) {
+			t.Fatalf("%s still contains old gRPC port:\n%s", path, got)
+		}
+		if !strings.Contains(got, strconv.Itoa(httpPort)) {
+			t.Fatalf("%s lost HTTP port:\n%s", path, got)
+		}
+	}
+}
+
+func TestChangeGRPCListenPortRejectsNonLoki(t *testing.T) {
+	mgr, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageComponentConfig(t, mgr, "prometheus", prometheusConfig("/var/lib/prometheus", 19090))
+	err = mgr.ChangeGRPCListenPort(context.Background(), "prometheus", 25432)
+	if err == nil || !strings.Contains(err.Error(), "仅适用于 Loki") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestChangeGRPCListenPortRejectsHTTPCollision(t *testing.T) {
+	mgr, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const httpPort = 31876
+	stageComponentConfig(t, mgr, "loki", lokiConfigWithGRPC("/var/lib/loki", httpPort, 19095))
+	if err := os.MkdirAll(filepath.Dir(mgr.listenPortPath("loki")), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mgr.listenPortPath("loki"), []byte(strconv.Itoa(httpPort)+"\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	err = mgr.ChangeGRPCListenPort(context.Background(), "loki", httpPort)
+	if err == nil || !strings.Contains(err.Error(), "已由 loki 使用") {
+		t.Fatalf("collision error = %v", err)
+	}
+}
+
+func TestChangeListenPortPreservesGRPCPort(t *testing.T) {
+	mgr, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const oldHTTP = 31876
+	const newHTTP = 25432
+	const grpcPort = 19095
+	configPath := stageComponentConfig(t, mgr, "loki", lokiConfigWithGRPC("/var/lib/loki", oldHTTP, grpcPort))
+	unitPath := mgr.path("/etc/systemd/system/loki.service")
+	if err := os.MkdirAll(filepath.Dir(unitPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(unitPath, []byte(lokiUnit(false, oldHTTP, grpcPort)), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mgr.listenPortPath("loki"), []byte(strconv.Itoa(oldHTTP)+"\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mgr.grpcPortPath(), []byte(strconv.Itoa(grpcPort)+"\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.ChangeListenPort(context.Background(), "loki", newHTTP); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{configPath, unitPath, mgr.grpcPortPath()} {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(content), strconv.Itoa(grpcPort)) {
+			t.Fatalf("%s lost gRPC port:\n%s", path, content)
+		}
+	}
+}
+
+func TestApplyLokiGRPCPortInsertsMissingKeys(t *testing.T) {
+	original := []byte(lokiConfig("/var/lib/loki", 31876))
+	updated := string(applyLokiGRPCPort(original, 45231))
+	for _, want := range []string{
+		"http_listen_port: 31876",
+		"grpc_listen_address: 127.0.0.1",
+		"grpc_listen_port: 45231",
+	} {
+		if !strings.Contains(updated, want) {
+			t.Fatalf("updated config missing %q:\n%s", want, updated)
+		}
+	}
+}
+
+func TestApplyLokiGRPCPortKeepsExistingAddress(t *testing.T) {
+	original := []byte("server:\n  grpc_listen_address: 0.0.0.0\n  grpc_listen_port: 9095\n")
+	updated := string(applyLokiGRPCPort(original, 45231))
+	if !strings.Contains(updated, "grpc_listen_address: 0.0.0.0") {
+		t.Fatalf("custom gRPC address was overwritten:\n%s", updated)
+	}
+	if !strings.Contains(updated, "grpc_listen_port: 45231") {
+		t.Fatalf("gRPC port was not updated:\n%s", updated)
+	}
+}
+
+func TestLegacyLokiWithoutGRPCPortIsUnset(t *testing.T) {
+	mgr, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageComponentConfig(t, mgr, "loki", lokiConfig("/var/lib/loki", 3100))
+	port, found, err := mgr.configuredGRPCPortLocked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found || port != 0 {
+		t.Fatalf("legacy grpc port = %d, found=%t; want unset", port, found)
+	}
+}
+
+func TestLokiUnitIncludesGRPCListenFlags(t *testing.T) {
+	unit := lokiUnit(false, 31876, 45231)
+	for _, want := range []string{
+		"-server.http-listen-port=31876",
+		"-server.grpc-listen-address=127.0.0.1",
+		"-server.grpc-listen-port=45231",
+	} {
+		if !strings.Contains(unit, want) {
+			t.Fatalf("unit missing %q:\n%s", want, unit)
+		}
 	}
 }
 

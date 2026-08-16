@@ -20,11 +20,21 @@ const (
 	randomPortEnd     = 59999
 )
 
+type listenPortRole string
+
+const (
+	listenPortHTTP  listenPortRole = "http"
+	listenPortGRPC  listenPortRole = "grpc"
+	lokiGRPCAddress                = "127.0.0.1"
+)
+
 var (
 	prometheusUnitPortPattern   = regexp.MustCompile(`--web\.listen-address=[^\s:]+:(\d+)`)
 	prometheusConfigPortPattern = regexp.MustCompile(`127\.0\.0\.1:(\d+)`)
 	lokiUnitPortPattern         = regexp.MustCompile(`-server\.http-listen-port=(\d+)`)
 	lokiConfigPortPattern       = regexp.MustCompile(`(?m)^(\s*http_listen_port:\s*)(\d+)(\s*(?:#.*)?)$`)
+	lokiUnitGRPCPortPattern     = regexp.MustCompile(`-server\.grpc-listen-port=(\d+)`)
+	lokiConfigGRPCPortPattern   = regexp.MustCompile(`(?m)^(\s*grpc_listen_port:\s*)(\d+)(\s*(?:#.*)?)$`)
 )
 
 // ChangeListenPort atomically changes the externally reachable HTTP(S) port.
@@ -47,13 +57,17 @@ func (m *Manager) ChangeListenPort(ctx context.Context, name string, port int) e
 	if port == currentPort {
 		return nil
 	}
-	if err := m.ensurePortCanBeUsedLocked(spec.name, port); err != nil {
+	if err := m.ensurePortAvailableLocked(spec.name, listenPortHTTP, port); err != nil {
 		return err
 	}
 
 	unitPath := m.path("/etc/systemd/system/" + spec.name + ".service")
 	portPath := m.listenPortPath(spec.name)
-	snapshots, err := snapshotFiles([]string{configPath, unitPath, portPath})
+	managedPaths := []string{configPath, unitPath, portPath}
+	if spec.name == "loki" {
+		managedPaths = append(managedPaths, m.grpcPortPath())
+	}
+	snapshots, err := snapshotFiles(managedPaths)
 	if err != nil {
 		return err
 	}
@@ -79,7 +93,11 @@ func (m *Manager) ChangeListenPort(ctx context.Context, name string, port int) e
 		return rollback(err)
 	}
 	mtlsEnabled := mtlsEnabledLocked(m, spec.name)
-	if err := atomicWrite(unitPath, []byte(m.componentUnitLocked(spec, mtlsEnabled, managedRemoteWriteEnabled(m, spec.name), port)), 0644); err != nil {
+	unit, err := m.componentUnitLocked(spec, mtlsEnabled, managedRemoteWriteEnabled(m, spec.name), port)
+	if err != nil {
+		return rollback(err)
+	}
+	if err := atomicWrite(unitPath, []byte(unit), 0644); err != nil {
 		return rollback(err)
 	}
 	if err := atomicWrite(portPath, []byte(strconv.Itoa(port)+"\n"), 0640); err != nil {
@@ -108,6 +126,95 @@ func (m *Manager) ChangeListenPort(ctx context.Context, name string, port int) e
 	return nil
 }
 
+// ChangeGRPCListenPort atomically changes Loki's internal gRPC listen port.
+func (m *Manager) ChangeGRPCListenPort(ctx context.Context, name string, port int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	spec, configPath, err := m.configTargetLocked(name)
+	if err != nil {
+		return err
+	}
+	if spec.name != "loki" {
+		return errors.New("gRPC 端口仅适用于 Loki")
+	}
+	if err := validateListenPort(port); err != nil {
+		return err
+	}
+	currentPort, found, err := m.configuredGRPCPortLocked()
+	if err != nil {
+		return err
+	}
+	if found && port == currentPort {
+		return nil
+	}
+	if err := m.ensurePortAvailableLocked(spec.name, listenPortGRPC, port); err != nil {
+		return err
+	}
+
+	unitPath := m.path("/etc/systemd/system/" + spec.name + ".service")
+	httpPort, err := m.ensureListenPortLocked(spec.name)
+	if err != nil {
+		return err
+	}
+	portPath := m.grpcPortPath()
+	snapshots, err := snapshotFiles([]string{configPath, unitPath, portPath})
+	if err != nil {
+		return err
+	}
+	rollback := func(cause error) error {
+		restoreErr := restoreSnapshots(snapshots)
+		if m.isLiveRoot() {
+			_ = m.fixConfigOwnershipLocked(ctx, spec, configPath)
+			_ = run(ctx, "systemctl", "daemon-reload")
+			_ = run(ctx, "systemctl", "restart", spec.name+".service")
+		}
+		if restoreErr != nil {
+			return fmt.Errorf("%v；恢复原 gRPC 端口配置失败：%w", cause, restoreErr)
+		}
+		return cause
+	}
+
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	if err := atomicWrite(configPath, applyLokiGRPCPort(config, port), snapshots[0].mode); err != nil {
+		return rollback(err)
+	}
+	if err := atomicWrite(portPath, []byte(strconv.Itoa(port)+"\n"), 0640); err != nil {
+		return rollback(err)
+	}
+	unit, err := m.componentUnitLocked(spec, mtlsEnabledLocked(m, spec.name), false, httpPort)
+	if err != nil {
+		return rollback(err)
+	}
+	if err := atomicWrite(unitPath, []byte(unit), 0644); err != nil {
+		return rollback(err)
+	}
+	if err := m.fixConfigOwnershipLocked(ctx, spec, configPath); err != nil {
+		return rollback(err)
+	}
+	if !m.isLiveRoot() {
+		return nil
+	}
+	if err := spec.validate(ctx, configPath); err != nil {
+		return rollback(fmt.Errorf("修改 gRPC 端口后的配置校验失败：%w", err))
+	}
+	if mtlsEnabledLocked(m, spec.name) {
+		if err := m.validateMTLSConfigLocked(ctx, spec, configPath); err != nil {
+			return rollback(err)
+		}
+	}
+	if err := run(ctx, "systemctl", "daemon-reload"); err != nil {
+		return rollback(err)
+	}
+	if err := run(ctx, "systemctl", "restart", spec.name+".service"); err != nil {
+		return rollback(fmt.Errorf("新 gRPC 端口启动失败，已恢复原端口：%w", err))
+	}
+	return nil
+}
+
 // RandomListenPort returns an available random port suitable for ChangeListenPort.
 func (m *Manager) RandomListenPort(name string) (int, error) {
 	m.mu.Lock()
@@ -115,11 +222,22 @@ func (m *Manager) RandomListenPort(name string) (int, error) {
 	if _, err := lookup(name); err != nil {
 		return 0, err
 	}
-	return m.randomListenPortLocked(name)
+	return m.randomListenPortLocked(name, listenPortHTTP)
+}
+
+// RandomGRPCPort returns an available random port suitable for ChangeGRPCListenPort.
+func (m *Manager) RandomGRPCPort() (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.randomListenPortLocked("loki", listenPortGRPC)
 }
 
 func (m *Manager) listenPortPath(name string) string {
 	return m.path("/etc/" + name + "/listen.port")
+}
+
+func (m *Manager) grpcPortPath() string {
+	return m.path("/etc/loki/grpc.port")
 }
 
 func (m *Manager) ensureListenPortLocked(name string) (int, error) {
@@ -128,7 +246,7 @@ func (m *Manager) ensureListenPortLocked(name string) (int, error) {
 		return 0, err
 	}
 	if !found {
-		port, err = m.randomListenPortLocked(name)
+		port, err = m.randomListenPortLocked(name, listenPortHTTP)
 		if err != nil {
 			return 0, err
 		}
@@ -137,6 +255,87 @@ func (m *Manager) ensureListenPortLocked(name string) (int, error) {
 		return 0, fmt.Errorf("保存 %s 监听端口：%w", name, err)
 	}
 	return port, nil
+}
+
+func (m *Manager) ensureGRPCPortLocked() (int, error) {
+	port, found, err := m.configuredGRPCPortLocked()
+	if err != nil {
+		return 0, err
+	}
+	if !found {
+		port, err = m.randomListenPortLocked("loki", listenPortGRPC)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if err := atomicWrite(m.grpcPortPath(), []byte(strconv.Itoa(port)+"\n"), 0640); err != nil {
+		return 0, fmt.Errorf("保存 Loki gRPC 端口：%w", err)
+	}
+	return port, nil
+}
+
+func (m *Manager) configuredGRPCPortLocked() (int, bool, error) {
+	portPath := m.grpcPortPath()
+	content, err := os.ReadFile(portPath)
+	if err == nil {
+		port, parseErr := strconv.Atoi(strings.TrimSpace(string(content)))
+		if parseErr != nil || validateListenPort(port) != nil {
+			return 0, false, fmt.Errorf("gRPC 端口文件无效：%s", portPath)
+		}
+		return port, true, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return 0, false, err
+	}
+
+	unit, unitErr := os.ReadFile(m.path("/etc/systemd/system/loki.service"))
+	if unitErr == nil {
+		if match := lokiUnitGRPCPortPattern.FindSubmatch(unit); len(match) == 2 {
+			port, _ := strconv.Atoi(string(match[1]))
+			if validateListenPort(port) == nil {
+				return port, true, nil
+			}
+		}
+	} else if !errors.Is(unitErr, os.ErrNotExist) {
+		return 0, false, unitErr
+	}
+
+	config, configErr := os.ReadFile(m.path("/etc/loki/loki.yml"))
+	if configErr == nil {
+		if match := lokiConfigGRPCPortPattern.FindSubmatch(config); len(match) >= 3 {
+			port, _ := strconv.Atoi(string(match[2]))
+			if validateListenPort(port) == nil {
+				return port, true, nil
+			}
+		}
+	} else if !errors.Is(configErr, os.ErrNotExist) {
+		return 0, false, configErr
+	}
+	return 0, false, nil
+}
+
+func (m *Manager) applyLokiGRPCPortLocked(configPath string, port int) error {
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	updated := applyLokiGRPCPort(content, port)
+	if string(updated) == string(content) {
+		return nil
+	}
+	mode := os.FileMode(0640)
+	if info, statErr := os.Stat(configPath); statErr == nil {
+		mode = info.Mode().Perm()
+	}
+	return atomicWrite(configPath, updated, mode)
+}
+
+func applyLokiGRPCPort(config []byte, port int) []byte {
+	updated := setYAMLSectionScalar(config, "server", "grpc_listen_port", strconv.Itoa(port))
+	if _, ok := yamlSectionScalar(updated, "server", "grpc_listen_address"); !ok {
+		updated = setYAMLSectionScalar(updated, "server", "grpc_listen_address", lokiGRPCAddress)
+	}
+	return updated
 }
 
 func (m *Manager) configuredListenPortLocked(name string) (int, bool, error) {
@@ -197,7 +396,7 @@ func (m *Manager) configuredListenPortLocked(name string) (int, bool, error) {
 	return 0, false, nil
 }
 
-func (m *Manager) randomListenPortLocked(name string) (int, error) {
+func (m *Manager) randomListenPortLocked(name string, role listenPortRole) (int, error) {
 	span := int64(randomPortEnd - randomPortStart + 1)
 	for attempt := 0; attempt < 128; attempt++ {
 		randomValue, err := rand.Int(rand.Reader, big.NewInt(span))
@@ -205,7 +404,7 @@ func (m *Manager) randomListenPortLocked(name string) (int, error) {
 			return 0, fmt.Errorf("生成随机端口：%w", err)
 		}
 		port := randomPortStart + int(randomValue.Int64())
-		if m.ensurePortCanBeUsedLocked(name, port) == nil {
+		if m.ensurePortAvailableLocked(name, role, port) == nil {
 			return port, nil
 		}
 	}
@@ -213,27 +412,39 @@ func (m *Manager) randomListenPortLocked(name string) (int, error) {
 }
 
 func (m *Manager) ensurePortCanBeUsedLocked(name string, port int) error {
+	return m.ensurePortAvailableLocked(name, listenPortHTTP, port)
+}
+
+func (m *Manager) ensurePortAvailableLocked(name string, role listenPortRole, port int) error {
 	if err := validateListenPort(port); err != nil {
 		return err
 	}
 	for _, other := range ComponentNames() {
-		if other == name {
-			continue
-		}
 		otherPort, found, err := m.configuredListenPortLocked(other)
 		if err != nil {
 			return err
 		}
-		if found && otherPort == port {
+		if found && otherPort == port && !(other == name && role == listenPortHTTP) {
 			return fmt.Errorf("端口 %d 已由 %s 使用", port, other)
 		}
+	}
+	grpcPort, found, err := m.configuredGRPCPortLocked()
+	if err != nil {
+		return err
+	}
+	if found && grpcPort == port && !(name == "loki" && role == listenPortGRPC) {
+		return fmt.Errorf("端口 %d 已由 Loki gRPC 使用", port)
 	}
 	// Staged installations use an isolated filesystem root and do not start a
 	// service on this host, so checking the host network namespace is misleading.
 	if !m.isLiveRoot() {
 		return nil
 	}
-	listener, err := net.Listen("tcp4", fmt.Sprintf("0.0.0.0:%d", port))
+	listenAddress := "0.0.0.0"
+	if name == "loki" && role == listenPortGRPC {
+		listenAddress = lokiGRPCAddress
+	}
+	listener, err := net.Listen("tcp4", fmt.Sprintf("%s:%d", listenAddress, port))
 	if err != nil {
 		return fmt.Errorf("端口 %d 已被占用或不可用", port)
 	}
