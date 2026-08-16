@@ -205,7 +205,8 @@ func (m *Manager) ConfigureMTLS(ctx context.Context, name string, edit TLSEditFu
 	if err != nil {
 		return err
 	}
-	rollback := func(cause error, restart bool) error {
+	wasActive := m.serviceActiveLocked(ctx, name)
+	rollback := func(cause error, restoreService bool) error {
 		restoreErr := restoreSnapshots(snapshots)
 		if m.isLiveRoot() {
 			if ownershipErr := m.fixTLSOwnershipLocked(ctx, spec, files); ownershipErr != nil {
@@ -220,9 +221,8 @@ func (m *Manager) ConfigureMTLS(ctx context.Context, name string, edit TLSEditFu
 				}
 			}
 		}
-		if m.isLiveRoot() && restart {
-			_ = run(ctx, "systemctl", "daemon-reload")
-			_ = run(ctx, "systemctl", "restart", name+".service")
+		if restoreService {
+			m.restoreRunningServiceLocked(ctx, name, wasActive)
 		}
 		if restoreErr != nil {
 			return fmt.Errorf("%v；恢复原 mTLS 配置失败：%w", cause, restoreErr)
@@ -279,13 +279,8 @@ func (m *Manager) ConfigureMTLS(ctx context.Context, name string, edit TLSEditFu
 	if err := atomicWrite(markerPath, []byte("enabled\n"), 0640); err != nil {
 		return rollback(err, false)
 	}
-	if m.isLiveRoot() {
-		if err := run(ctx, "systemctl", "daemon-reload"); err != nil {
-			return rollback(err, true)
-		}
-		if err := run(ctx, "systemctl", "restart", name+".service"); err != nil {
-			return rollback(fmt.Errorf("启用 mTLS 后服务启动失败：%w", err), true)
-		}
+	if err := m.applyRunningServiceLocked(ctx, name, wasActive, true); err != nil {
+		return rollback(fmt.Errorf("启用 mTLS 后应用服务失败：%w", err), true)
 	}
 	return nil
 }
@@ -310,6 +305,7 @@ func (m *Manager) DisableMTLS(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
+	wasActive := m.serviceActiveLocked(ctx, name)
 	unit, err := m.componentUnitLocked(spec, false, remoteWriteEnabled, listenPort)
 	if err != nil {
 		return err
@@ -321,17 +317,10 @@ func (m *Manager) DisableMTLS(ctx context.Context, name string) error {
 		_ = restoreSnapshots(snapshots)
 		return err
 	}
-	if m.isLiveRoot() {
-		if err := run(ctx, "systemctl", "daemon-reload"); err != nil {
-			_ = restoreSnapshots(snapshots)
-			return err
-		}
-		if err := run(ctx, "systemctl", "restart", name+".service"); err != nil {
-			_ = restoreSnapshots(snapshots)
-			_ = run(ctx, "systemctl", "daemon-reload")
-			_ = run(ctx, "systemctl", "restart", name+".service")
-			return fmt.Errorf("关闭 mTLS 后服务启动失败，已恢复原配置：%w", err)
-		}
+	if err := m.applyRunningServiceLocked(ctx, name, wasActive, true); err != nil {
+		_ = restoreSnapshots(snapshots)
+		m.restoreRunningServiceLocked(ctx, name, wasActive)
+		return fmt.Errorf("关闭 mTLS 后应用服务失败，已恢复原配置：%w", err)
 	}
 	return nil
 }
@@ -368,15 +357,7 @@ func (m *Manager) validateAndApplyLocked(ctx context.Context, spec componentSpec
 			return err
 		}
 	}
-	action := "restart"
-	if spec.name == "prometheus" {
-		action = "reload"
-	}
-	if err := run(ctx, "systemctl", action, spec.name+".service"); err != nil && action == "reload" {
-		return run(ctx, "systemctl", "restart", spec.name+".service")
-	} else {
-		return err
-	}
+	return m.applyRunningServiceLocked(ctx, spec.name, m.serviceActiveLocked(ctx, spec.name), false)
 }
 
 func (m *Manager) validateMTLSConfigLocked(ctx context.Context, spec componentSpec, configPath string) error {

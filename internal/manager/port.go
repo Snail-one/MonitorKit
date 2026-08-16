@@ -71,13 +71,13 @@ func (m *Manager) ChangeListenPort(ctx context.Context, name string, port int) e
 	if err != nil {
 		return err
 	}
+	wasActive := m.serviceActiveLocked(ctx, spec.name)
 	rollback := func(cause error) error {
 		restoreErr := restoreSnapshots(snapshots)
 		if m.isLiveRoot() {
 			_ = m.fixConfigOwnershipLocked(ctx, spec, configPath)
-			_ = run(ctx, "systemctl", "daemon-reload")
-			_ = run(ctx, "systemctl", "restart", spec.name+".service")
 		}
+		m.restoreRunningServiceLocked(ctx, spec.name, wasActive)
 		if restoreErr != nil {
 			return fmt.Errorf("%v；恢复原端口配置失败：%w", cause, restoreErr)
 		}
@@ -117,11 +117,8 @@ func (m *Manager) ChangeListenPort(ctx context.Context, name string, port int) e
 			return rollback(err)
 		}
 	}
-	if err := run(ctx, "systemctl", "daemon-reload"); err != nil {
-		return rollback(err)
-	}
-	if err := run(ctx, "systemctl", "restart", spec.name+".service"); err != nil {
-		return rollback(fmt.Errorf("新端口启动失败，已恢复原端口：%w", err))
+	if err := m.applyRunningServiceLocked(ctx, spec.name, wasActive, true); err != nil {
+		return rollback(fmt.Errorf("新端口应用失败，已恢复原端口：%w", err))
 	}
 	return nil
 }
@@ -162,13 +159,13 @@ func (m *Manager) ChangeGRPCListenPort(ctx context.Context, name string, port in
 	if err != nil {
 		return err
 	}
+	wasActive := m.serviceActiveLocked(ctx, spec.name)
 	rollback := func(cause error) error {
 		restoreErr := restoreSnapshots(snapshots)
 		if m.isLiveRoot() {
 			_ = m.fixConfigOwnershipLocked(ctx, spec, configPath)
-			_ = run(ctx, "systemctl", "daemon-reload")
-			_ = run(ctx, "systemctl", "restart", spec.name+".service")
 		}
+		m.restoreRunningServiceLocked(ctx, spec.name, wasActive)
 		if restoreErr != nil {
 			return fmt.Errorf("%v；恢复原 gRPC 端口配置失败：%w", cause, restoreErr)
 		}
@@ -206,11 +203,8 @@ func (m *Manager) ChangeGRPCListenPort(ctx context.Context, name string, port in
 			return rollback(err)
 		}
 	}
-	if err := run(ctx, "systemctl", "daemon-reload"); err != nil {
-		return rollback(err)
-	}
-	if err := run(ctx, "systemctl", "restart", spec.name+".service"); err != nil {
-		return rollback(fmt.Errorf("新 gRPC 端口启动失败，已恢复原端口：%w", err))
+	if err := m.applyRunningServiceLocked(ctx, spec.name, wasActive, true); err != nil {
+		return rollback(fmt.Errorf("新 gRPC 端口应用失败，已恢复原端口：%w", err))
 	}
 	return nil
 }

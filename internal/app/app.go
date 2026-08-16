@@ -140,10 +140,15 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 		if status.Installed {
 			configHint = "编辑/校验/mTLS"
 		}
+		serviceHint := "请先安装"
+		if status.Installed {
+			serviceHint = "启动/停止/开机自启"
+		}
 		a.ui.Option("1", "配置管理", configHint)
-		a.ui.Option("2", "安装或更新", "最新/指定版本")
-		a.ui.Option("3", "卸载程序", "保留数据")
-		a.ui.Option("4", "彻底清理", "删除数据")
+		a.ui.Option("2", "服务管理", serviceHint)
+		a.ui.Option("3", "安装或更新", "最新/指定版本")
+		a.ui.Option("4", "卸载程序", "保留数据")
+		a.ui.Option("5", "彻底清理", "删除数据")
 		a.ui.ExitOption("返回总览")
 		a.ui.Blank()
 
@@ -163,18 +168,122 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 				return err
 			}
 		case "2":
-			if err := a.installVersionMenu(ctx, component); err != nil {
+			if !status.Installed {
+				a.unavailableConfigAction(component)
+				continue
+			}
+			if err := a.serviceMenu(ctx, component); err != nil {
 				return err
 			}
 		case "3":
-			a.uninstall(ctx, component, false)
+			if err := a.installVersionMenu(ctx, component); err != nil {
+				return err
+			}
 		case "4":
+			a.uninstall(ctx, component, false)
+		case "5":
 			a.uninstall(ctx, component, true)
 		default:
 			a.ui.InvalidChoice()
 			a.ui.Pause()
 		}
 	}
+}
+
+func (a *App) serviceMenu(ctx context.Context, component componentView) error {
+	for {
+		status, err := a.manager.Status(ctx, component.name)
+		if err != nil {
+			return err
+		}
+		a.ui.Clear()
+		a.ui.Title(component.label, "服务管理")
+		a.ui.Card(ui.Neutral, "手动控制 systemd 服务",
+			ui.Field{Label: "安装状态", Value: installedText(status)},
+			ui.Field{Label: "服务状态", Value: serviceText(status.ServiceState)},
+			ui.Field{Label: "开机自启", Value: bootEnabledText(status.BootEnabled)},
+			ui.Field{Label: "说明", Value: "启动会立即运行并开启开机自启；停止只关当前进程"},
+		)
+		a.ui.Blank()
+		a.ui.OptionLive("1", "启动服务", serviceText(status.ServiceState), status.ServiceState == "active")
+		a.ui.Option("2", "停止服务", "不停开机自启")
+		a.ui.OptionLive("3", "停止开机启动", bootEnabledText(status.BootEnabled), status.BootEnabled)
+		a.ui.Option("4", "重启服务", "先校验配置")
+		a.ui.ExitOption("返回" + component.label)
+		a.ui.Blank()
+
+		choice, err := a.ui.Ask("请选择")
+		if err != nil {
+			return err
+		}
+		switch strings.ToLower(choice) {
+		case "0", "q", "exit":
+			return nil
+		case "1":
+			a.controlComponentService(ctx, component, "start")
+		case "2":
+			a.controlComponentService(ctx, component, "stop")
+		case "3":
+			a.controlComponentService(ctx, component, "disable-boot")
+		case "4":
+			a.controlComponentService(ctx, component, "restart")
+		default:
+			a.ui.InvalidChoice()
+			a.ui.Pause()
+		}
+	}
+}
+
+func (a *App) controlComponentService(ctx context.Context, component componentView, action string) {
+	var (
+		prompt  string
+		working string
+		failed  string
+		done    string
+		result  string
+		run     func() error
+	)
+	switch action {
+	case "start":
+		prompt = "确认启动" + component.label + "并开启开机自启"
+		working = "正在启动" + component.label
+		failed = component.label + "启动失败"
+		done = component.label + "已启动"
+		result = "运行中，已开启开机自启"
+		run = func() error { return a.manager.Start(ctx, component.name) }
+	case "stop":
+		prompt = "确认停止" + component.label + "（开机自启保持不变）"
+		working = "正在停止" + component.label
+		failed = component.label + "停止失败"
+		done = component.label + "已停止"
+		result = "已停止，开机自启未改"
+		run = func() error { return a.manager.Stop(ctx, component.name) }
+	case "disable-boot":
+		prompt = "确认关闭" + component.label + "的开机自启（当前进程不停止）"
+		working = "正在关闭" + component.label + "开机自启"
+		failed = component.label + "关闭开机自启失败"
+		done = component.label + "已关闭开机自启"
+		result = "开机不再自动启动"
+		run = func() error { return a.manager.DisableBoot(ctx, component.name) }
+	default:
+		prompt = "确认校验配置并重启" + component.label
+		working = "正在重启" + component.label
+		failed = component.label + "重启失败"
+		done = component.label + "已重启"
+		result = "运行中"
+		run = func() error { return a.manager.Restart(ctx, component.name) }
+	}
+	confirmed, err := a.ui.Confirm(prompt)
+	if err != nil || !confirmed {
+		return
+	}
+	err = a.ui.During(working, run)
+	if err != nil {
+		a.operationError(failed, err)
+		return
+	}
+	a.ui.Card(ui.Success, done, ui.Field{Label: "服务", Value: result})
+	a.ui.Pause()
 }
 
 func (a *App) installVersionMenu(ctx context.Context, component componentView) error {
@@ -1132,7 +1241,8 @@ func (a *App) install(ctx context.Context, component componentView, version stri
 	}
 	a.ui.Card(ui.Success, component.label+"已就绪",
 		ui.Field{Label: "版本", Value: status.Version},
-		ui.Field{Label: "服务", Value: serviceText(status.ServiceState)},
+		ui.Field{Label: "服务", Value: serviceText(status.ServiceState), Detail: "安装或更新不会自动启动"},
+		ui.Field{Label: "下一步", Value: "请到服务管理中手动启动或重启"},
 		ui.Field{Label: "访问", Value: a.componentAddress(component)},
 	)
 	a.ui.Pause()
@@ -1682,6 +1792,13 @@ func installedText(status manager.Status) string {
 		return "已安装"
 	}
 	return "未安装"
+}
+
+func bootEnabledText(enabled bool) string {
+	if enabled {
+		return "已开启"
+	}
+	return "未开启"
 }
 
 func serviceText(state string) string {

@@ -71,12 +71,22 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/i
 
 自身卸载不会删除 Prometheus、Loki、配置或监控数据。完整发布流程、指定版本安装和安全校验说明见 [发布文档](docs/release.md)，所有保留项见 [清理边界文档](docs/filesystem-and-cleanup.md)。
 
-直接使用 CLI 安装中心组件：
+直接使用 CLI 安装中心组件。安装或更新只会写入程序、配置和 systemd 单元，**不会自动启动服务**：
 
 ```bash
 sudo monitorkit install prometheus
 sudo monitorkit install loki
+sudo monitorkit start prometheus
+sudo monitorkit start loki
 sudo monitorkit status
+```
+
+`start` 会 `systemctl enable --now`：立即运行，并开启开机自启。停止当前进程、关闭开机自启或重启：
+
+```bash
+sudo monitorkit stop loki
+sudo monitorkit disable loki
+sudo monitorkit restart prometheus
 ```
 
 固定版本安装：
@@ -147,7 +157,8 @@ Prometheus 和 Loki 的管理菜单均提供“配置管理”：
 
 - 按 `vim → nano → vi` 的顺序自动选择已安装的编辑器。
 - 编辑前保留原内容，保存后使用 `promtool` 或 Loki 自身执行配置校验。
-- 校验成功后自动 reload/restart；失败时即时清理无效修改并恢复原配置，不生成残留文件。
+- 校验成功后，仅当服务已在运行时才 reload/restart；服务处于停止状态时只写入配置，不会自动拉起。失败时即时清理无效修改并恢复原配置，不生成残留文件。
+- 组件菜单提供“服务管理”，可手动启动、停止、停止开机启动或重启。安装与更新不会自动启动；“启动”会开启开机自启并立即运行；“停止”只停当前进程；“停止开机启动”只关掉开机自启，正在运行的进程不停止。
 - 配置操作及组件安装/更新会清理旧版本遗留的同名 `.rejected-*` 普通文件。
 - 可以单独校验当前配置或重启服务应用配置。
 - 首次安装会分别生成 `10000-59999` 范围内的可用随机监听端口，并写入 `/etc/prometheus/listen.port` 或 `/etc/loki/listen.port`；Loki 还会为内部 gRPC 再生成一个随机端口，写入 `/etc/loki/grpc.port` 和 `loki.yml`，并绑定 `127.0.0.1`。更新时这些端口保持不变。

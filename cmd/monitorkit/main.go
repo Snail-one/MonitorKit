@@ -26,6 +26,10 @@ const usage = `MonitorKit 中心端管理程序
   sudo monitorkit uninstall                          # 卸载管理程序自身
   sudo monitorkit install <prometheus|loki> [--version latest]
   sudo monitorkit uninstall <prometheus|loki> [--purge]
+  sudo monitorkit start <prometheus|loki>
+  sudo monitorkit stop <prometheus|loki>
+  sudo monitorkit disable <prometheus|loki>
+  sudo monitorkit restart <prometheus|loki>
   sudo monitorkit status [prometheus|loki]
 
 环境变量：
@@ -93,10 +97,30 @@ func run(args []string) error {
 			return err
 		}
 		if result.GRPCListenPort > 0 {
-			fmt.Printf("%s %s 安装完成，服务状态：%s，监听端口：%d，gRPC 端口：%d\n", result.Name, result.Version, result.ServiceState, result.ListenPort, result.GRPCListenPort)
+			fmt.Printf("%s %s 安装完成，服务未启动，状态：%s，监听端口：%d，gRPC 端口：%d\n", result.Name, result.Version, result.ServiceState, result.ListenPort, result.GRPCListenPort)
 			return nil
 		}
-		fmt.Printf("%s %s 安装完成，服务状态：%s，监听端口：%d\n", result.Name, result.Version, result.ServiceState, result.ListenPort)
+		fmt.Printf("%s %s 安装完成，服务未启动，状态：%s，监听端口：%d\n", result.Name, result.Version, result.ServiceState, result.ListenPort)
+		return nil
+	case "start", "stop", "disable", "restart":
+		component, _, err := componentArg(args[1:])
+		if err != nil {
+			return err
+		}
+		switch args[0] {
+		case "start":
+			err = mgr.Start(context.Background(), component)
+		case "stop":
+			err = mgr.Stop(context.Background(), component)
+		case "disable":
+			err = mgr.DisableBoot(context.Background(), component)
+		default:
+			err = mgr.Restart(context.Background(), component)
+		}
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s 已%s\n", component, map[string]string{"start": "启动并开启开机自启", "stop": "停止", "disable": "关闭开机自启", "restart": "重启"}[args[0]])
 		return nil
 	case "uninstall":
 		fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
@@ -126,11 +150,15 @@ func run(args []string) error {
 			if err != nil {
 				return err
 			}
+			boot := "off"
+			if status.BootEnabled {
+				boot = "on"
+			}
 			if status.GRPCListenPort > 0 {
-				fmt.Printf("%-10s installed=%-5t service=%s version=%s port=%s grpc=%s\n", status.Name, status.Installed, status.ServiceState, status.Version, displayPort(status.ListenPort), displayPort(status.GRPCListenPort))
+				fmt.Printf("%-10s installed=%-5t service=%s boot=%s version=%s port=%s grpc=%s\n", status.Name, status.Installed, status.ServiceState, boot, status.Version, displayPort(status.ListenPort), displayPort(status.GRPCListenPort))
 				continue
 			}
-			fmt.Printf("%-10s installed=%-5t service=%s version=%s port=%s\n", status.Name, status.Installed, status.ServiceState, status.Version, displayPort(status.ListenPort))
+			fmt.Printf("%-10s installed=%-5t service=%s boot=%s version=%s port=%s\n", status.Name, status.Installed, status.ServiceState, boot, status.Version, displayPort(status.ListenPort))
 		}
 		return nil
 	default:

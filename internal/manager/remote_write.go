@@ -37,12 +37,10 @@ func (m *Manager) SetRemoteWrite(ctx context.Context, name string, enabled bool)
 	if err != nil {
 		return err
 	}
+	wasActive := m.serviceActiveLocked(ctx, spec.name)
 	rollback := func(cause error) error {
 		restoreErr := restoreSnapshots(snapshots)
-		if m.isLiveRoot() {
-			_ = run(ctx, "systemctl", "daemon-reload")
-			_ = run(ctx, "systemctl", "restart", "prometheus.service")
-		}
+		m.restoreRunningServiceLocked(ctx, spec.name, wasActive)
 		if restoreErr != nil {
 			return fmt.Errorf("%v；恢复原远程写入状态失败：%w", cause, restoreErr)
 		}
@@ -74,10 +72,7 @@ func (m *Manager) SetRemoteWrite(ctx context.Context, name string, enabled bool)
 			return rollback(err)
 		}
 	}
-	if err := run(ctx, "systemctl", "daemon-reload"); err != nil {
-		return rollback(err)
-	}
-	if err := run(ctx, "systemctl", "restart", "prometheus.service"); err != nil {
+	if err := m.applyRunningServiceLocked(ctx, spec.name, wasActive, true); err != nil {
 		return rollback(fmt.Errorf("应用远程写入状态失败：%w", err))
 	}
 	return nil

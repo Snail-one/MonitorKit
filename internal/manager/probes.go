@@ -111,13 +111,14 @@ func (m *Manager) AddNodeExporterProbe(ctx context.Context, probe Probe, editTLS
 	if err != nil {
 		return Probe{}, err
 	}
+	wasActive := m.serviceActiveLocked(ctx, "prometheus")
 	rollback := func(cause error) (Probe, error) {
 		restoreErr := restoreSnapshots(snapshots)
 		_ = os.Remove(m.probeTLSDir(probe.ID))
 		if m.isLiveRoot() {
 			_ = m.fixConfigOwnershipLocked(ctx, spec, configPath)
-			_ = run(ctx, "systemctl", "reload", "prometheus.service")
 		}
+		m.restoreRunningServiceLocked(ctx, "prometheus", wasActive)
 		if restoreErr != nil {
 			return Probe{}, fmt.Errorf("%v；恢复原探针配置失败：%w", cause, restoreErr)
 		}
@@ -265,6 +266,7 @@ func (m *Manager) ConfigureProbeTLS(ctx context.Context, id string, edit ProbeTL
 	if err != nil {
 		return err
 	}
+	wasActive := m.serviceActiveLocked(ctx, "prometheus")
 	rollback := func(cause error) error {
 		if restoreErr := restoreSnapshots(snapshots); restoreErr != nil {
 			return fmt.Errorf("%v；恢复原探针证书失败：%w", cause, restoreErr)
@@ -289,7 +291,7 @@ func (m *Manager) ConfigureProbeTLS(ctx context.Context, id string, edit ProbeTL
 		if err := spec.validate(ctx, configPath); err != nil {
 			return rollback(err)
 		}
-		if err := run(ctx, "systemctl", "reload", "prometheus.service"); err != nil {
+		if err := m.applyRunningServiceLocked(ctx, "prometheus", wasActive, false); err != nil {
 			return rollback(err)
 		}
 	}
@@ -301,14 +303,15 @@ func (m *Manager) applyProbeInventoryWithRollbackLocked(ctx context.Context, spe
 	if err != nil {
 		return err
 	}
+	wasActive := m.serviceActiveLocked(ctx, "prometheus")
 	if err := m.applyProbeInventoryLocked(ctx, spec, configPath, inventory); err != nil {
 		if restoreErr := restoreSnapshots(snapshots); restoreErr != nil {
 			return fmt.Errorf("%v；恢复原探针配置失败：%w", err, restoreErr)
 		}
 		if m.isLiveRoot() {
 			_ = m.fixConfigOwnershipLocked(ctx, spec, configPath)
-			_ = run(ctx, "systemctl", "reload", "prometheus.service")
 		}
+		m.restoreRunningServiceLocked(ctx, "prometheus", wasActive)
 		return err
 	}
 	return nil
@@ -349,10 +352,7 @@ func (m *Manager) applyProbeInventoryLocked(ctx context.Context, spec componentS
 	if err := spec.validate(ctx, configPath); err != nil {
 		return fmt.Errorf("生成的 Prometheus 探针配置校验失败：%w", err)
 	}
-	if err := run(ctx, "systemctl", "reload", "prometheus.service"); err != nil {
-		return run(ctx, "systemctl", "restart", "prometheus.service")
-	}
-	return nil
+	return m.applyRunningServiceLocked(ctx, "prometheus", m.serviceActiveLocked(ctx, "prometheus"), false)
 }
 
 func (m *Manager) readProbeInventoryLocked() (probeInventory, error) {

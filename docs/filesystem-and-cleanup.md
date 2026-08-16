@@ -344,7 +344,7 @@ alloy 用户、组及其附加组成员关系
 - Prometheus 和 Loki 的用户、组只在不存在时创建，普通卸载和 `--purge` 都保留。
 - node_exporter 普通卸载保留用户、组，`purge` 调用 `userdel`/`groupdel` 删除对应记录。
 - Alloy 账号、unit、环境文件和软件包数据库记录由发行版的软件包安装/卸载脚本处理。
-- `systemctl enable` 创建的启用链接会在 disable 或卸载时删除；systemd 自身状态和 journald 历史日志不会随项目 purge 清空。
+- 安装不再执行 `systemctl enable --now`，因此默认不会创建开机启动链接，也不会拉起服务。用户在服务管理中选择“启动”（或 `monitorkit start`）时才会 `enable --now`。“停止开机启动”（或 `monitorkit disable`）只 `disable`，不停止当前进程。卸载仍会 `disable --now`。systemd 自身状态和 journald 历史日志不会随项目 purge 清空。
 - Alloy 安装可能同时安装或更新 `ca-certificates`、`curl`、`gpg` 等依赖；MonitorKit 不会在卸载 Alloy 时反向卸载这些共享软件包。
 
 ## 临时落盘路径

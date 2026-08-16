@@ -28,6 +28,7 @@ type Status struct {
 	Installed      bool   `json:"installed"`
 	Version        string `json:"version,omitempty"`
 	ServiceState   string `json:"service_state"`
+	BootEnabled    bool   `json:"boot_enabled,omitempty"`
 	ListenPort     int    `json:"listen_port,omitempty"`
 	GRPCListenPort int    `json:"grpc_listen_port,omitempty"`
 }
@@ -210,8 +211,8 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 	finalMessage := "完成暂存部署"
 	finalDetail := "非系统根目录，不启动 systemd 服务"
 	if m.isLiveRoot() {
-		finalMessage = "校验配置并启动服务"
-		finalDetail = name + ".service"
+		finalMessage = "校验配置并加载 systemd 单元"
+		finalDetail = name + ".service（未启动）"
 	}
 	report(7, finalMessage, finalDetail)
 	if m.isLiveRoot() {
@@ -235,9 +236,6 @@ func (m *Manager) InstallWithProgress(ctx context.Context, name, wantedVersion s
 			}
 		}
 		if err := run(ctx, "systemctl", "daemon-reload"); err != nil {
-			return Status{}, err
-		}
-		if err := run(ctx, "systemctl", "enable", "--now", name+".service"); err != nil {
 			return Status{}, err
 		}
 	}
@@ -329,6 +327,7 @@ func (m *Manager) statusLocked(ctx context.Context, name, knownVersion string) (
 	if err != nil && status.ServiceState == "active" {
 		status.ServiceState = "unknown"
 	}
+	status.BootEnabled = m.serviceBootEnabledLocked(ctx, name)
 	return status, nil
 }
 

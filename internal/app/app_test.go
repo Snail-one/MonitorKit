@@ -57,6 +57,7 @@ func TestComponentMenuShowsGrayStyleHints(t *testing.T) {
 	got := output.String()
 	for _, want := range []string{
 		"配置管理", "-- 编辑/校验/mTLS",
+		"服务管理", "-- 启动/停止/开机自启",
 		"安装或更新", "-- 最新/指定版本",
 		"卸载程序", "-- 保留数据",
 		"彻底清理", "-- 删除数据",
@@ -113,6 +114,39 @@ func TestComponentMenusShowDataUsage(t *testing.T) {
 	}
 }
 
+func TestServiceMenuShowsManualControls(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	root := t.TempDir()
+	absolute := filepath.Join(root, "usr/local/bin/prometheus")
+	if err := os.MkdirAll(filepath.Dir(absolute), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(absolute, []byte("installed\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "etc/prometheus"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "etc/prometheus/prometheus.yml"), []byte("scrape_configs: []\n"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	mgr, err := manager.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	application := New(mgr, ui.New(strings.NewReader("q\n"), &output))
+	if err := application.serviceMenu(context.Background(), componentViews["prometheus"]); err != nil {
+		t.Fatal(err)
+	}
+	got := output.String()
+	for _, want := range []string{"服务管理", "启动服务", "停止服务", "停止开机启动", "重启服务", "开机自启"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("service menu does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestConfigurationAndInstallAreSeparateComponentActions(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	mgr, err := manager.New(t.TempDir())
@@ -121,7 +155,7 @@ func TestConfigurationAndInstallAreSeparateComponentActions(t *testing.T) {
 	}
 	var output bytes.Buffer
 	// Prometheus -> 安装或更新 -> 返回各级菜单 -> 退出。
-	application := New(mgr, ui.New(strings.NewReader("1\n2\nq\nq\nq\n"), &output))
+	application := New(mgr, ui.New(strings.NewReader("1\n3\nq\nq\nq\n"), &output))
 	if err := application.Run(context.Background()); err != nil {
 		t.Fatal(err)
 	}

@@ -73,12 +73,10 @@ func (m *Manager) applyPrometheusStorageSettingsLocked(ctx context.Context, sett
 	if err != nil {
 		return err
 	}
+	wasActive := m.serviceActiveLocked(ctx, spec.name)
 	rollback := func(cause error) error {
 		restoreErr := restoreSnapshots(snapshots)
-		if m.isLiveRoot() {
-			_ = run(ctx, "systemctl", "daemon-reload")
-			_ = run(ctx, "systemctl", "restart", "prometheus.service")
-		}
+		m.restoreRunningServiceLocked(ctx, spec.name, wasActive)
 		if restoreErr != nil {
 			return fmt.Errorf("%v；恢复原数据存储设置失败：%w", cause, restoreErr)
 		}
@@ -106,11 +104,8 @@ func (m *Manager) applyPrometheusStorageSettingsLocked(ctx context.Context, sett
 			return rollback(err)
 		}
 	}
-	if err := run(ctx, "systemctl", "daemon-reload"); err != nil {
-		return rollback(err)
-	}
-	if err := run(ctx, "systemctl", "restart", "prometheus.service"); err != nil {
-		return rollback(fmt.Errorf("应用数据存储设置后服务启动失败，已恢复原配置：%w", err))
+	if err := m.applyRunningServiceLocked(ctx, spec.name, wasActive, true); err != nil {
+		return rollback(fmt.Errorf("应用数据存储设置后失败，已恢复原配置：%w", err))
 	}
 	return nil
 }
