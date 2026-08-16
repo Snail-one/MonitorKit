@@ -167,7 +167,7 @@ Prometheus 和 Loki 的管理菜单均提供“配置管理”：
 - 可以配置、更新或关闭服务端 mTLS；关闭和普通卸载均保留证书，`purge` 才会删除。
 - Prometheus 的远程写入接收使用独立开关且默认关闭。mTLS 模式可直接确认开启；HTTP 模式也允许开启，但界面会警告指标与请求未加密并要求再次确认。关闭 mTLS 会保留远程写入开关状态，已开放的接收端会转为 HTTP。
 - Prometheus 和 Loki 的配置菜单都提供“数据存储设置”。Prometheus 可选择 7/15/30/90 天、自定义天数或不限制保留期，并可设置 10/20/50/100 GB 或自定义磁盘上限。时间和磁盘上限同时生效，先到先清理。设置会写入 `/etc/prometheus/storage.settings` 和 `prometheus.service` 的 `--storage.tsdb.retention.time` / `--storage.tsdb.retention.size`；更新、改端口、开关 mTLS 或远程写入时都会保留。恢复默认后回到上游 15 天、无磁盘上限。首次安装不写自定义参数。
-- Loki 的“数据存储设置”可选择 7/15/30/90 天、自定义天数或不限制保留期，并可设置摄入速率、突发大小和单行上限。设置保留期时会写入 `limits_config.retention_period` 并启用 Compactor 过期删除；恢复默认后日志再次无限保留。首次安装默认不限制保留。最短保留期为 24 小时。
+- Loki 的“数据存储设置”可选择 7/15/30/90 天、自定义天数或不限制保留期，并可设置摄入速率、突发大小和单行上限。设置保留期时会写入 `limits_config.retention_period` 并启用 Compactor 过期删除。首次安装和“重置配置”默认 30 天并打开过期删除；菜单里“恢复默认”同样回到 30 天。最短保留期为 24 小时。
 - 组件更新会读取受管 mTLS 状态，不会把 HTTPS 配置覆盖回 HTTP。
 
 中心端 mTLS 需要依次填写：

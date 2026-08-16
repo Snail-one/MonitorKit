@@ -71,12 +71,15 @@ func TestResetConfigRewritesLokiDefaultsAndKeepsPort(t *testing.T) {
 		"grpc_listen_port: 45231",
 		"path_prefix: /var/lib/loki",
 		"allow_structured_metadata: true",
+		"retention_period: 30d",
+		"max_query_lookback: 30d",
+		"retention_enabled: true",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("reset config missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "retention_period:") {
+	if strings.Contains(got, "retention_period: 7d") {
 		t.Fatalf("reset config kept custom retention:\n%s", got)
 	}
 	unit, err := os.ReadFile(mgr.path("/etc/systemd/system/loki.service"))

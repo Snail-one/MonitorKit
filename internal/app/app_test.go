@@ -675,6 +675,9 @@ func TestLogRetentionHelpers(t *testing.T) {
 	if got := logRetentionText(manager.LokiLogSettings{Retention: 30 * 24 * time.Hour}); got != "30 天（未启用删除）" {
 		t.Fatalf("pending retention = %q", got)
 	}
+	if got := logRetentionText(manager.LokiLogSettings{Retention: manager.DefaultLokiRetention, RetentionDeletes: true}); got != "30 天（默认）" {
+		t.Fatalf("default retention = %q", got)
+	}
 	if got := logRetentionText(manager.LokiLogSettings{Retention: 7 * 24 * time.Hour, RetentionDeletes: true}); got != "7 天" {
 		t.Fatalf("enabled retention = %q", got)
 	}

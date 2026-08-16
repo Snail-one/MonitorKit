@@ -15,8 +15,14 @@ import (
 const (
 	minimumLokiRetention = 24 * time.Hour
 	maximumLokiRetention = 3650 * 24 * time.Hour
+	DefaultLokiRetention = 30 * 24 * time.Hour
 	defaultLokiDataDir   = "/var/lib/loki"
 )
+
+// DefaultLokiLogSettings is the first-install and reset-config retention policy.
+func DefaultLokiLogSettings() LokiLogSettings {
+	return LokiLogSettings{Retention: DefaultLokiRetention}
+}
 
 var (
 	yamlScalarKeyPattern = regexp.MustCompile(`^(\s*)([A-Za-z0-9_]+)\s*:\s*(.*?)\s*$`)

@@ -826,7 +826,7 @@ func (a *App) lokiLogSettingsMenu(ctx context.Context, component componentView) 
 		a.ui.Blank()
 		a.ui.OptionLive("1", "设置保留期", logRetentionBadge(settings), settings.Retention > 0)
 		a.ui.Option("2", "设置摄入限制", logIngestionText(settings))
-		a.ui.Option("3", "恢复默认", "不限制保留")
+		a.ui.Option("3", "恢复默认", "30 天")
 		a.ui.ExitOption("返回配置管理")
 		a.ui.Blank()
 		choice, err := a.ui.Ask("请选择")
@@ -860,7 +860,7 @@ func (a *App) changeLokiRetention(ctx context.Context, current manager.LokiLogSe
 	a.ui.Blank()
 	a.ui.Option("1", "7 天", "")
 	a.ui.Option("2", "15 天", "")
-	a.ui.Option("3", "30 天", "推荐")
+	a.ui.Option("3", "30 天", "默认")
 	a.ui.Option("4", "90 天", "")
 	a.ui.Option("5", "自定义天数", "1-3650")
 	a.ui.Option("6", "不限制", "磁盘持续增长")
@@ -982,14 +982,14 @@ func (a *App) changeLokiIngestion(ctx context.Context, current manager.LokiLogSe
 
 func (a *App) resetLokiLogSettings(ctx context.Context) {
 	a.ui.Card(ui.Warning, "将恢复首次安装时的日志策略",
-		ui.Field{Label: "保留期", Value: "不限制，已有日志不会被自动删除"},
+		ui.Field{Label: "保留期", Value: "30 天，Compactor 会删除过期日志"},
 		ui.Field{Label: "摄入限制", Value: "使用 Loki 默认值：4 MB/s、突发 6 MB、单行 256 KB"},
 	)
 	confirmed, err := a.ui.Confirm("确认恢复默认数据存储设置")
 	if err != nil || !confirmed {
 		return
 	}
-	a.applyLokiLogSettings(ctx, manager.LokiLogSettings{}, "正在恢复 Loki 默认数据存储设置")
+	a.applyLokiLogSettings(ctx, manager.DefaultLokiLogSettings(), "正在恢复 Loki 默认数据存储设置")
 }
 
 func (a *App) applyLokiLogSettings(ctx context.Context, settings manager.LokiLogSettings, progress string) {
@@ -1061,7 +1061,7 @@ func (a *App) resetComponentConfig(ctx context.Context, component componentView)
 		{Label: "将覆盖", Value: component.configPath + " 与 systemd unit"},
 		{Label: "生成方式", Value: "与当前程序首次安装相同的默认配置模板"},
 		{Label: "保留", Value: "监听端口、gRPC 端口、mTLS 证书、远程写入开关、存储设置文件、探针清单、历史数据"},
-		{Label: "恢复默认", Value: "主配置里的手工修改；Loki 的保留期与摄入限制"},
+		{Label: "恢复默认", Value: "主配置里的手工修改；Loki 保留期回到 30 天，摄入限制回到上游默认"},
 	}
 	if component.name == "prometheus" {
 		fields = append(fields, ui.Field{Label: "探针", Value: "受管 node_exporter 接入会写回新配置"})
@@ -2030,6 +2030,9 @@ func logRetentionText(settings manager.LokiLogSettings) string {
 		return "不限制"
 	}
 	text := formatRetentionChoice(settings.Retention)
+	if settings.Retention == manager.DefaultLokiRetention && settings.RetentionDeletes {
+		return text + "（默认）"
+	}
 	if !settings.RetentionDeletes {
 		return text + "（未启用删除）"
 	}

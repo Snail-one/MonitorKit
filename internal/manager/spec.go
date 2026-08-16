@@ -97,7 +97,7 @@ func lokiConfigWithGRPC(dataDir string, httpPort, grpcPort int) string {
 	if grpcPort > 0 {
 		grpcBlock = fmt.Sprintf("\n  grpc_listen_address: 127.0.0.1\n  grpc_listen_port: %d", grpcPort)
 	}
-	return fmt.Sprintf(`auth_enabled: false
+	base := fmt.Sprintf(`auth_enabled: false
 
 server:
   http_listen_address: 0.0.0.0
@@ -127,6 +127,11 @@ schema_config:
 limits_config:
   allow_structured_metadata: true
 `, httpPort, grpcBlock, dataDir, dataDir, dataDir)
+	updated, err := applyLokiLogSettings([]byte(base), DefaultLokiLogSettings())
+	if err != nil {
+		return base
+	}
+	return string(updated)
 }
 
 func lokiUnit(mtls bool, httpPort, grpcPort int) string {

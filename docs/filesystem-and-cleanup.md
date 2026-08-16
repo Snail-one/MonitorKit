@@ -228,9 +228,9 @@ prometheus 用户与组
 
 从配置菜单直接编辑 `loki.yml` 时，会在内存中保存原内容，再使用 Loki 的 `-verify-config=true` 校验；服务已运行才重启。校验或启动失败时即时清理无效修改并恢复原配置，不保留拒绝文件。
 
-“重置配置”会按当前程序模板重写 `loki.yml` 和 `loki.service`，并保留 `listen.port`、`grpc.port`、mTLS 文件与 `/var/lib/loki`。主配置中的手工项和保留期设置会回到首次安装默认。
+“重置配置”会按当前程序模板重写 `loki.yml` 和 `loki.service`，并保留 `listen.port`、`grpc.port`、mTLS 文件与 `/var/lib/loki`。主配置中的手工项会回到首次安装默认，保留期恢复为 30 天。
 
-“数据存储设置”只改写 `loki.yml` 中的 `limits_config` 与 `compactor`，不另建开关文件。首次安装默认不写保留期。设置保留期后会启用 Compactor，并在 `/var/lib/loki/compactor/`（或配置中的 `path_prefix/compactor`）写入压缩与删除标记；恢复默认会关掉过期删除，但已有数据目录仍保留到普通卸载或 `--purge`。
+“数据存储设置”只改写 `loki.yml` 中的 `limits_config` 与 `compactor`，不另建开关文件。首次安装和“重置配置”默认写入 30 天保留期并启用 Compactor。设置保留期后会在 `/var/lib/loki/compactor/`（或配置中的 `path_prefix/compactor`）写入压缩与删除标记；菜单“恢复默认”同样回到 30 天。已有数据目录仍保留到普通卸载或 `--purge`。
 
 普通卸载会删除二进制和 unit，并停止、禁用服务，但保留：
 

@@ -9,13 +9,15 @@ import (
 	"time"
 )
 
-func TestParseDefaultLokiConfigHasUnlimitedLogs(t *testing.T) {
+func TestParseDefaultLokiConfigHas30DayRetention(t *testing.T) {
 	settings, err := parseLokiLogSettings([]byte(lokiConfig("/var/lib/loki", 3100)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if settings != (LokiLogSettings{}) {
-		t.Fatalf("default settings = %+v, want zero value", settings)
+	want := DefaultLokiLogSettings()
+	want.RetentionDeletes = true
+	if settings != want {
+		t.Fatalf("default settings = %+v, want %+v", settings, want)
 	}
 }
 
