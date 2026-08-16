@@ -224,7 +224,7 @@ prometheus 用户与组
 系统组：loki
 ```
 
-首次安装从 `10000-59999` 中为 HTTP 和 gRPC 各选择一个当时可用的随机端口。HTTP 写入 `listen.port` 与 `loki.yml` 的 `http_listen_port`；gRPC 写入 `grpc.port`、`loki.yml` 的 `grpc_listen_port`，并绑定 `127.0.0.1`。更新会读取这两个端口文件并保持不变，同时替换二进制和 systemd unit；已经存在的 `loki.yml` 会保留，但缺少 gRPC 端口时会补写随机端口。存在 `mtls.enabled` 时，新 unit 会继续带有 Loki HTTPS 与客户端证书验证参数。
+首次安装从 `10000-59999` 中为 HTTP 和 gRPC 各选择一个当时可用的随机端口。HTTP 写入 `listen.port` 与 `loki.yml` 的 `http_listen_port`；gRPC 写入 `grpc.port`、`loki.yml` 的 `grpc_listen_port`，并绑定 `127.0.0.1`。更新会读取这两个端口文件并保持不变，同时替换二进制和 systemd unit；已经存在的 `loki.yml` 会完整保留，不再改写其中字段。要把主配置换成当前程序默认，使用「重置配置」。存在 `mtls.enabled` 时，新 unit 会继续带有 Loki HTTPS 与客户端证书验证参数。
 
 从配置菜单直接编辑 `loki.yml` 时，会在内存中保存原内容，再使用 Loki 的 `-verify-config=true` 校验；服务已运行才重启。校验或启动失败时即时清理无效修改并恢复原配置，不保留拒绝文件。
 

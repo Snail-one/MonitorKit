@@ -308,22 +308,6 @@ func (m *Manager) configuredGRPCPortLocked() (int, bool, error) {
 	return 0, false, nil
 }
 
-func (m *Manager) applyLokiGRPCPortLocked(configPath string, port int) error {
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		return err
-	}
-	updated := applyLokiGRPCPort(content, port)
-	if string(updated) == string(content) {
-		return nil
-	}
-	mode := os.FileMode(0640)
-	if info, statErr := os.Stat(configPath); statErr == nil {
-		mode = info.Mode().Perm()
-	}
-	return atomicWrite(configPath, updated, mode)
-}
-
 func applyLokiGRPCPort(config []byte, port int) []byte {
 	updated := setYAMLSectionScalar(config, "server", "grpc_listen_port", strconv.Itoa(port))
 	if _, ok := yamlSectionScalar(updated, "server", "grpc_listen_address"); !ok {
