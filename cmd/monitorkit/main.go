@@ -28,7 +28,6 @@ const usage = `MonitorKit 中心端管理程序
   sudo monitorkit uninstall <prometheus|loki> [--purge]
   sudo monitorkit start <prometheus|loki>
   sudo monitorkit stop <prometheus|loki>
-  sudo monitorkit disable <prometheus|loki>
   sudo monitorkit restart <prometheus|loki>
   sudo monitorkit reset-config <prometheus|loki>
   sudo monitorkit status [prometheus|loki]
@@ -103,7 +102,7 @@ func run(args []string) error {
 		}
 		fmt.Printf("%s %s 安装完成，服务未启动，状态：%s，监听端口：%d\n", result.Name, result.Version, result.ServiceState, result.ListenPort)
 		return nil
-	case "start", "stop", "disable", "restart":
+	case "start", "stop", "restart":
 		component, _, err := componentArg(args[1:])
 		if err != nil {
 			return err
@@ -113,15 +112,13 @@ func run(args []string) error {
 			err = mgr.Start(context.Background(), component)
 		case "stop":
 			err = mgr.Stop(context.Background(), component)
-		case "disable":
-			err = mgr.DisableBoot(context.Background(), component)
 		default:
 			err = mgr.Restart(context.Background(), component)
 		}
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s 已%s\n", component, map[string]string{"start": "启动并开启开机自启", "stop": "停止", "disable": "关闭开机自启", "restart": "重启"}[args[0]])
+		fmt.Printf("%s 已%s\n", component, map[string]string{"start": "启动并开启开机自启", "stop": "停止并关闭开机自启", "restart": "重启"}[args[0]])
 		return nil
 	case "reset-config":
 		component, _, err := componentArg(args[1:])

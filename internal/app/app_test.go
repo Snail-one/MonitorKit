@@ -57,7 +57,7 @@ func TestComponentMenuShowsGrayStyleHints(t *testing.T) {
 	got := output.String()
 	for _, want := range []string{
 		"配置管理", "-- 编辑/校验/mTLS",
-		"服务管理", "-- 启动/停止/开机自启",
+		"服务管理", "-- 启动/停止/重启",
 		"安装或更新", "-- 最新/指定版本",
 		"卸载程序", "-- 保留数据",
 		"彻底清理", "-- 删除数据",
@@ -140,7 +140,7 @@ func TestServiceMenuShowsManualControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, want := range []string{"服务管理", "启动服务", "停止服务", "停止开机启动", "重启服务", "开机自启"} {
+	for _, want := range []string{"服务管理", "启动服务", "停止服务", "重启服务", "取消开机自启"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("service menu does not contain %q:\n%s", want, got)
 		}

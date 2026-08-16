@@ -81,11 +81,10 @@ sudo monitorkit start loki
 sudo monitorkit status
 ```
 
-`start` 会 `systemctl enable --now`：立即运行，并开启开机自启。停止当前进程、关闭开机自启或重启：
+`start` 会 `systemctl enable --now`：立即运行，并开启开机自启。`stop` 会 `systemctl disable --now`：停止进程并取消开机自启。
 
 ```bash
 sudo monitorkit stop loki
-sudo monitorkit disable loki
 sudo monitorkit restart prometheus
 ```
 
@@ -159,7 +158,7 @@ Prometheus 和 Loki 的管理菜单均提供“配置管理”：
 - 编辑前保留原内容，保存后使用 `promtool` 或 Loki 自身执行配置校验。
 - 校验成功后，仅当服务已在运行时才 reload/restart；服务处于停止状态时只写入配置，不会自动拉起。失败时即时清理无效修改并恢复原配置，不生成残留文件。
 - “重置配置”会用当前程序内置的默认模板重写主配置和 systemd unit，便于吃到后续版本的默认配置变更。监听端口、gRPC 端口、mTLS 证书、远程写入开关、存储设置文件、探针清单和历史数据会保留；主配置里的手工修改以及 Loki 保留期/摄入限制会回到程序默认。Prometheus 受管探针会重新写入新配置。
-- 组件菜单提供“服务管理”，可手动启动、停止、停止开机启动或重启。安装与更新不会自动启动；“启动”会开启开机自启并立即运行；“停止”只停当前进程；“停止开机启动”只关掉开机自启，正在运行的进程不停止。
+- 组件菜单提供“服务管理”，可手动启动、停止或重启。安装与更新不会自动启动；“启动”会开启开机自启并立即运行；“停止”会关掉进程并取消开机自启。
 - 配置操作及组件安装/更新会清理旧版本遗留的同名 `.rejected-*` 普通文件。
 - 可以单独校验当前配置或重启服务应用配置。
 - 首次安装会分别生成 `10000-59999` 范围内的可用随机监听端口，并写入 `/etc/prometheus/listen.port` 或 `/etc/loki/listen.port`；Loki 还会为内部 gRPC 再生成一个随机端口，写入 `/etc/loki/grpc.port` 和 `loki.yml`，并绑定 `127.0.0.1`。更新时这些端口保持不变。

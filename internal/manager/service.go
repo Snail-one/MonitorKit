@@ -32,7 +32,7 @@ func (m *Manager) Start(ctx context.Context, name string) error {
 	return run(ctx, "systemctl", "enable", "--now", spec.name+".service")
 }
 
-// Stop stops the component systemd unit without disabling boot start.
+// Stop disables boot start and stops the unit immediately (systemctl disable --now).
 func (m *Manager) Stop(ctx context.Context, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -46,24 +46,7 @@ func (m *Manager) Stop(ctx context.Context, name string) error {
 	if !m.isLiveRoot() {
 		return nil
 	}
-	return run(ctx, "systemctl", "stop", spec.name+".service")
-}
-
-// DisableBoot turns off systemd start-on-boot without stopping a running unit.
-func (m *Manager) DisableBoot(ctx context.Context, name string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	spec, err := lookup(name)
-	if err != nil {
-		return err
-	}
-	if err := m.requireSystemAccess(); err != nil {
-		return err
-	}
-	if !m.isLiveRoot() {
-		return nil
-	}
-	return run(ctx, "systemctl", "disable", spec.name+".service")
+	return run(ctx, "systemctl", "disable", "--now", spec.name+".service")
 }
 
 func (m *Manager) serviceActiveLocked(ctx context.Context, name string) bool {

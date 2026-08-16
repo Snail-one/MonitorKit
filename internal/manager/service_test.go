@@ -18,9 +18,6 @@ func TestStartAndStopAreNoopsOnStagedRoot(t *testing.T) {
 	if err := mgr.Stop(context.Background(), "loki"); err != nil {
 		t.Fatal(err)
 	}
-	if err := mgr.DisableBoot(context.Background(), "loki"); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestStartRequiresInstalledConfig(t *testing.T) {

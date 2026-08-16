@@ -142,7 +142,7 @@ func (a *App) componentMenu(ctx context.Context, component componentView) error 
 		}
 		serviceHint := "请先安装"
 		if status.Installed {
-			serviceHint = "启动/停止/开机自启"
+			serviceHint = "启动/停止/重启"
 		}
 		a.ui.Option("1", "配置管理", configHint)
 		a.ui.Option("2", "服务管理", serviceHint)
@@ -202,13 +202,12 @@ func (a *App) serviceMenu(ctx context.Context, component componentView) error {
 			ui.Field{Label: "安装状态", Value: installedText(status)},
 			ui.Field{Label: "服务状态", Value: serviceText(status.ServiceState)},
 			ui.Field{Label: "开机自启", Value: bootEnabledText(status.BootEnabled)},
-			ui.Field{Label: "说明", Value: "启动会立即运行并开启开机自启；停止只关当前进程"},
+			ui.Field{Label: "说明", Value: "启动会立即运行并开启开机自启；停止会关掉进程并取消开机自启"},
 		)
 		a.ui.Blank()
 		a.ui.OptionLive("1", "启动服务", serviceText(status.ServiceState), status.ServiceState == "active")
-		a.ui.Option("2", "停止服务", "不停开机自启")
-		a.ui.OptionLive("3", "停止开机启动", bootEnabledText(status.BootEnabled), status.BootEnabled)
-		a.ui.Option("4", "重启服务", "先校验配置")
+		a.ui.OptionLive("2", "停止服务", bootEnabledText(status.BootEnabled), status.BootEnabled)
+		a.ui.Option("3", "重启服务", "先校验配置")
 		a.ui.ExitOption("返回" + component.label)
 		a.ui.Blank()
 
@@ -224,8 +223,6 @@ func (a *App) serviceMenu(ctx context.Context, component componentView) error {
 		case "2":
 			a.controlComponentService(ctx, component, "stop")
 		case "3":
-			a.controlComponentService(ctx, component, "disable-boot")
-		case "4":
 			a.controlComponentService(ctx, component, "restart")
 		default:
 			a.ui.InvalidChoice()
@@ -252,19 +249,12 @@ func (a *App) controlComponentService(ctx context.Context, component componentVi
 		result = "运行中，已开启开机自启"
 		run = func() error { return a.manager.Start(ctx, component.name) }
 	case "stop":
-		prompt = "确认停止" + component.label + "（开机自启保持不变）"
+		prompt = "确认停止" + component.label + "并关闭开机自启"
 		working = "正在停止" + component.label
 		failed = component.label + "停止失败"
 		done = component.label + "已停止"
-		result = "已停止，开机自启未改"
+		result = "已停止，已关闭开机自启"
 		run = func() error { return a.manager.Stop(ctx, component.name) }
-	case "disable-boot":
-		prompt = "确认关闭" + component.label + "的开机自启（当前进程不停止）"
-		working = "正在关闭" + component.label + "开机自启"
-		failed = component.label + "关闭开机自启失败"
-		done = component.label + "已关闭开机自启"
-		result = "开机不再自动启动"
-		run = func() error { return a.manager.DisableBoot(ctx, component.name) }
 	default:
 		prompt = "确认校验配置并重启" + component.label
 		working = "正在重启" + component.label
