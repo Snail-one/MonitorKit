@@ -614,7 +614,7 @@ install_debian() {
   apt-get update
   apt-get install -y ca-certificates curl gpg
   install -d -m 0755 /etc/apt/keyrings
-  download_file https://apt.grafana.com/gpg-full.key /etc/apt/keyrings/grafana.asc
+  download_file https://apt.grafana.com/gpg.key /etc/apt/keyrings/grafana.asc
   chmod 0644 /etc/apt/keyrings/grafana.asc
   printf '%s\n' 'deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main' > /etc/apt/sources.list.d/grafana.list
   apt-get update

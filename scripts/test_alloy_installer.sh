@@ -139,12 +139,18 @@ for expected in \
   'prometheus_tls_config=""' \
   'alloy validate "${temp_file}"' \
   'rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"' \
-  '"未清理"'; do
+  '"未清理"' \
+  'https://apt.grafana.com/gpg.key'; do
   grep -Fq -- "${expected}" "${INSTALLER}" || {
     printf 'Alloy 维护框架缺少：%s\n' "${expected}" >&2
     exit 1
   }
 done
+
+if grep -Fq 'gpg-full.key' "${INSTALLER}"; then
+  printf 'Alloy 不应下载包含已吊销历史密钥的 gpg-full.key\n' >&2
+  exit 1
+fi
 
 if grep -Fq 'target_label = "nodename"' "${INSTALLER}"; then
   printf 'Alloy 不应覆盖系统指标原生的 nodename 标签\n' >&2
