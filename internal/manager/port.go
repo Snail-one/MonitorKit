@@ -389,10 +389,6 @@ func (m *Manager) randomListenPortLocked(name string, role listenPortRole) (int,
 	return 0, errors.New("无法生成可用随机端口，请检查本机端口占用")
 }
 
-func (m *Manager) ensurePortCanBeUsedLocked(name string, port int) error {
-	return m.ensurePortAvailableLocked(name, listenPortHTTP, port)
-}
-
 func (m *Manager) ensurePortAvailableLocked(name string, role listenPortRole, port int) error {
 	if err := validateListenPort(port); err != nil {
 		return err

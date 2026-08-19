@@ -251,9 +251,7 @@ func (u *UI) Card(tone Tone, title string, fields ...Field) {
 	fmt.Fprintln(u.out, u.paint(orange, "╰"+strings.Repeat("─", line)))
 }
 
-func (u *UI) Muted(text string) string   { return u.paint(gray, text) }
 func (u *UI) Success(text string) string { return u.paint(green, text) }
-func (u *UI) Warning(text string) string { return u.paint(yellow, text) }
 
 func (u *UI) paint(style, text string) string {
 	if !u.color {
