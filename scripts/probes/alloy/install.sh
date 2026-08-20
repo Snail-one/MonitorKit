@@ -9,6 +9,10 @@ readonly CONFIG_FILE="${CONFIG_DIR}/config.alloy"
 readonly DATA_DIR="/var/lib/alloy"
 readonly TLS_DIR="${CONFIG_DIR}/tls"
 readonly MONITOR_NAME_FILE="${CONFIG_DIR}/monitor.name"
+readonly INSTALL_METHOD_FILE="${CONFIG_DIR}/install-method"
+readonly ALLOY_BINARY_FILE="/usr/local/bin/alloy"
+readonly ALLOY_BINARY_SERVICE_FILE="/etc/systemd/system/alloy.service"
+readonly ALLOY_BINARY_MARKER_FILE="${CONFIG_DIR}/.monitorkit-binary-install"
 
 PROMETHEUS_URL_PRESET=0
 LOKI_URL_PRESET=0
@@ -16,16 +20,26 @@ PROMETHEUS_MTLS_MODE_PRESET=0
 LOKI_MTLS_MODE_PRESET=0
 ALLOY_MTLS_CERT_MODE_PRESET=0
 MONITOR_NAME_PRESET=0
+ALLOY_INSTALL_METHOD_PRESET=0
 [[ -n "${PROMETHEUS_URL+x}" ]] && PROMETHEUS_URL_PRESET=1
 [[ -n "${LOKI_URL+x}" ]] && LOKI_URL_PRESET=1
 [[ -n "${PROMETHEUS_MTLS_ENABLED+x}" ]] && PROMETHEUS_MTLS_MODE_PRESET=1
 [[ -n "${LOKI_MTLS_ENABLED+x}" ]] && LOKI_MTLS_MODE_PRESET=1
 [[ -n "${ALLOY_MTLS_CERT_MODE+x}" ]] && ALLOY_MTLS_CERT_MODE_PRESET=1
 [[ -n "${MONITOR_NAME+x}" ]] && MONITOR_NAME_PRESET=1
+[[ -n "${ALLOY_INSTALL_METHOD+x}" ]] && ALLOY_INSTALL_METHOD_PRESET=1
 
 PROMETHEUS_URL="${PROMETHEUS_URL:-}"
 LOKI_URL="${LOKI_URL:-}"
 MONITOR_NAME="${MONITOR_NAME:-}"
+ALLOY_INSTALL_METHOD="${ALLOY_INSTALL_METHOD:-}"
+ALLOY_VERSION="${ALLOY_VERSION:-latest}"
+ALLOY_RELEASE_API_URL="${ALLOY_RELEASE_API_URL:-https://api.github.com/repos/grafana/alloy/releases}"
+ALLOY_DOWNLOAD_BASE_URL="${ALLOY_DOWNLOAD_BASE_URL:-https://github.com/grafana/alloy/releases/download}"
+ALLOY_ARTIFACT_LABEL="二进制程序"
+ALLOY_INSTALL_PROGRESS_TEXT="将从 Grafana Alloy 官方 GitHub Release 下载并校验 SHA-256"
+ALLOY_UNMANAGED_RESIDUE="journald 历史日志"
+ALLOY_ACCOUNT_RETENTION="普通卸载保留；彻底清理仅删除由本脚本创建的账号"
 PROMETHEUS_MTLS_CA_FILE="${PROMETHEUS_MTLS_CA_FILE:-}"
 PROMETHEUS_MTLS_CERT_FILE="${PROMETHEUS_MTLS_CERT_FILE:-}"
 PROMETHEUS_MTLS_KEY_FILE="${PROMETHEUS_MTLS_KEY_FILE:-}"
@@ -58,12 +72,17 @@ PURGE_MODE=0
 PROMETHEUS_MTLS_ENABLED="${PROMETHEUS_MTLS_ENABLED:-1}"
 LOKI_MTLS_ENABLED="${LOKI_MTLS_ENABLED:-1}"
 WORK_DIR=""
+BINARY_WORK_DIR=""
+BINARY_ACCOUNT_CREATED_THIS_RUN=0
+BINARY_GROUP_CREATED_THIS_RUN=0
 TRANSACTION_ACTIVE=0
 CONFIG_EXISTED=0
 SERVICE_WAS_ACTIVE=0
 SERVICE_WAS_ENABLED=0
-PACKAGE_WAS_INSTALLED=0
+ARTIFACT_WAS_INSTALLED=0
 DATA_EXISTED=0
+
+PATH="/usr/local/bin:${PATH}"
 
 init_colors() {
   if [[ -n "${NO_COLOR+x}" ]]; then
@@ -171,6 +190,7 @@ print_completion_card() {
   local title="$1"
   success_card "${title}" \
     "服务" "alloy.service（运行中、开机自启）" \
+    "安装方式" "$([[ "${ALLOY_INSTALL_METHOD}" == "binary" ]] && printf '官方 Release 二进制' || printf 'Grafana 软件包')" \
     "节点名称" "${MONITOR_NAME}" \
     "指标中心" "${PROMETHEUS_URL}" \
     "日志中心" "${LOKI_URL}" \
@@ -184,10 +204,10 @@ print_uninstall_card() {
   local title="$1"
   local retained="$2"
   success_card "${title}" \
-    "已删除" "Alloy 软件包及其服务" \
+    "已删除" "Alloy ${ALLOY_ARTIFACT_LABEL}及其服务" \
     "配置与数据" "${retained}" \
-    "未清理" "Grafana 软件源/签名密钥、软件包缓存、journald 历史日志" \
-    "系统账号" "由系统软件包管理器决定是否保留"
+    "未清理" "${ALLOY_UNMANAGED_RESIDUE}" \
+    "系统账号" "${ALLOY_ACCOUNT_RETENTION}"
 }
 
 usage() {
@@ -196,9 +216,9 @@ Grafana Alloy 指标与日志统一探针维护脚本。
 
 用法：
   curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | sudo bash
-  sudo ./install.sh                 # 安装或进入维护菜单
-  sudo ./install.sh update          # 更新软件包，保留现有配置
-  sudo ./install.sh reconfigure     # 仅重新配置，不更新软件包
+  sudo ./install.sh                 # 选择二进制（默认）或软件包安装
+  sudo ./install.sh update          # 按原安装方式更新，保留现有配置
+  sudo ./install.sh reconfigure     # 仅重新配置，不更新 Alloy 程序
   sudo ./install.sh status          # 查看运行状态和受管文件
   sudo ./install.sh uninstall       # 交互选择普通卸载或彻底清理
   sudo ./install.sh purge           # 直接彻底清理
@@ -206,6 +226,14 @@ Grafana Alloy 指标与日志统一探针维护脚本。
 交互模式会填写 Prometheus/Loki 中心地址，并使用 vim、nano 或 vi 直接
 编辑 /etc/alloy/tls/ 中的 mTLS 证书。Prometheus 和 Loki 均默认推荐 mTLS；
 选择不启用时会显示明文传输风险并要求再次确认，然后使用普通 HTTP。
+
+安装方式：
+  ALLOY_INSTALL_METHOD=binary        # 默认；官方 Release 二进制
+  ALLOY_INSTALL_METHOD=package       # Grafana apt/rpm 软件源
+  ALLOY_VERSION=latest               # 二进制版版本，也可固定为 1.18.0
+
+首次交互安装会显示安装方式菜单，默认选择二进制版。安装方式保存在
+/etc/alloy/install-method，后续更新和卸载会自动使用同一种方式。
 
 无人值守配置变量：
   MONITOR_NAME=debian-web-01
@@ -231,7 +259,8 @@ ALLOY_MTLS_KEY_FILE；内容会校验后分别写入 Prometheus/Loki 对应文�
 separate 模式分别使用 PROMETHEUS_MTLS_* 和 LOKI_MTLS_* 三个证书变量。
 
 普通卸载保留 /etc/alloy 和 /var/lib/alloy；purge 会删除这两个目录。
-两种卸载方式均不清理 Grafana 软件源、签名密钥、包缓存和历史日志。
+软件包版卸载不清理 Grafana 软件源、签名密钥和包缓存；两种方式均不清理
+journald 历史日志。
 顶层菜单使用 0/q 安全退出，子菜单使用 0/q 取消并返回；NO_COLOR=1
 可关闭颜色，FORCE_COLOR=1 可在受支持的非交互输出中强制启用颜色。
 EOF
@@ -469,18 +498,142 @@ prompt_monitor_name() {
   done
 }
 
-installed_version() {
-  if command -v alloy >/dev/null 2>&1; then
-    alloy --version 2>/dev/null | head -n 1 || true
-  elif command -v dpkg-query >/dev/null 2>&1 && dpkg-query -W -f='${Version}' alloy >/dev/null 2>&1; then
-    dpkg-query -W -f='${Version}\n' alloy
-  elif command -v rpm >/dev/null 2>&1 && rpm -q alloy >/dev/null 2>&1; then
-    rpm -q --qf '%{VERSION}-%{RELEASE}\n' alloy
+package_is_installed() {
+  if command -v dpkg-query >/dev/null 2>&1 && \
+     [[ "$(dpkg-query -W -f='${Status}' alloy 2>/dev/null || true)" == "install ok installed" ]]; then
+    return 0
+  fi
+  command -v rpm >/dev/null 2>&1 && rpm -q alloy >/dev/null 2>&1
+}
+
+binary_is_installed() {
+  [[ -x "${ALLOY_BINARY_FILE}" ]]
+}
+
+persisted_install_method() {
+  local method=""
+  [[ -r "${INSTALL_METHOD_FILE}" ]] || return 1
+  IFS= read -r method <"${INSTALL_METHOD_FILE}" || true
+  case "${method}" in
+    binary|package) printf '%s\n' "${method}" ;;
+    *) return 1 ;;
+  esac
+}
+
+detect_install_method() {
+  local persisted=""
+  if binary_is_installed && package_is_installed; then
+    die "同时检测到二进制版和软件包版 Alloy，请先清理混装状态"
+  fi
+  if binary_is_installed; then
+    printf 'binary\n'
+    return 0
+  fi
+  if package_is_installed; then
+    printf 'package\n'
+    return 0
+  fi
+  persisted="$(persisted_install_method || true)"
+  if [[ -n "${persisted}" ]]; then
+    printf '%s\n' "${persisted}"
+    return 0
+  fi
+  if [[ -e "${ALLOY_BINARY_MARKER_FILE}" || -e "${ALLOY_BINARY_SERVICE_FILE}" ]]; then
+    printf 'binary\n'
+    return 0
+  fi
+  return 1
+}
+
+set_install_method() {
+  case "$1" in
+    binary)
+      ALLOY_INSTALL_METHOD="binary"
+      ALLOY_ARTIFACT_LABEL="二进制程序"
+      ALLOY_INSTALL_PROGRESS_TEXT="将从 Grafana Alloy 官方 GitHub Release 下载并校验 SHA-256"
+      ALLOY_UNMANAGED_RESIDUE="journald 历史日志"
+      ALLOY_ACCOUNT_RETENTION="普通卸载保留；彻底清理仅删除由本脚本创建的账号"
+      ;;
+    package)
+      ALLOY_INSTALL_METHOD="package"
+      ALLOY_ARTIFACT_LABEL="软件包"
+      ALLOY_INSTALL_PROGRESS_TEXT="软件包管理器将显示仓库刷新和下载进度"
+      ALLOY_UNMANAGED_RESIDUE="Grafana 软件源/签名密钥、软件包缓存和 journald 历史日志"
+      ALLOY_ACCOUNT_RETENTION="由系统软件包管理器决定是否保留"
+      ;;
+    *) die "ALLOY_INSTALL_METHOD 只支持 binary 或 package" ;;
+  esac
+}
+
+initialize_install_method() {
+  local detected=""
+  if binary_is_installed && package_is_installed; then
+    die "同时检测到二进制版和软件包版 Alloy，请先清理混装状态"
+  fi
+  detected="$(detect_install_method || true)"
+  if [[ "${ALLOY_INSTALL_METHOD_PRESET}" == "1" ]]; then
+    case "${ALLOY_INSTALL_METHOD}" in
+      binary|package) ;;
+      *) die "ALLOY_INSTALL_METHOD 只支持 binary 或 package" ;;
+    esac
+    if [[ -n "${detected}" && "${detected}" != "${ALLOY_INSTALL_METHOD}" ]] && \
+       { binary_is_installed || package_is_installed; }; then
+      die "当前 Alloy 使用 ${detected} 安装，不能改用 ${ALLOY_INSTALL_METHOD} 执行维护"
+    fi
+    set_install_method "${ALLOY_INSTALL_METHOD}"
+  elif [[ -n "${detected}" ]]; then
+    set_install_method "${detected}"
+  else
+    set_install_method binary
   fi
 }
 
+persist_install_method() {
+  local method_temp=""
+  method_temp="$(mktemp -t alloy-install-method.XXXXXXXX)"
+  install -d -o root -g alloy -m 0750 "${CONFIG_DIR}"
+  printf '%s\n' "${ALLOY_INSTALL_METHOD}" >"${method_temp}"
+  install -o root -g alloy -m 0640 "${method_temp}" "${INSTALL_METHOD_FILE}"
+  rm -f -- "${method_temp}"
+}
+
+installed_version() {
+  case "${ALLOY_INSTALL_METHOD}" in
+    binary)
+      if binary_is_installed; then
+        "${ALLOY_BINARY_FILE}" --version 2>/dev/null | head -n 1 || true
+      fi
+      ;;
+    package)
+      if command -v dpkg-query >/dev/null 2>&1 && \
+         [[ "$(dpkg-query -W -f='${Status}' alloy 2>/dev/null || true)" == "install ok installed" ]]; then
+        dpkg-query -W -f='${Version}\n' alloy
+      elif command -v rpm >/dev/null 2>&1 && rpm -q alloy >/dev/null 2>&1; then
+        rpm -q --qf '%{VERSION}-%{RELEASE}\n' alloy
+      elif command -v alloy >/dev/null 2>&1; then
+        alloy --version 2>/dev/null | head -n 1 || true
+      fi
+      ;;
+  esac
+}
+
 is_installed() {
-  [[ -n "$(installed_version)" ]]
+  case "${ALLOY_INSTALL_METHOD}" in
+    binary) binary_is_installed ;;
+    package) package_is_installed ;;
+    *) return 1 ;;
+  esac
+}
+
+has_install_artifacts() {
+  case "${ALLOY_INSTALL_METHOD}" in
+    binary)
+      [[ -x "${ALLOY_BINARY_FILE}" || -e "${ALLOY_BINARY_SERVICE_FILE}" || \
+         -e "${ALLOY_BINARY_MARKER_FILE}" || -e "${INSTALL_METHOD_FILE}" ]]
+      ;;
+    package) package_is_installed || [[ -e "${INSTALL_METHOD_FILE}" ]] ;;
+    *) return 1 ;;
+  esac
 }
 
 load_existing_settings() {
@@ -525,18 +678,20 @@ load_existing_settings() {
 
 choose_install_action() {
   set_interactive_device
-  menu_section "请选择操作"
-  menu_option "1" "安装 Grafana Alloy" "推荐；进入地址与安全配置"
-  menu_option "2" "查看安装状态" "不修改系统"
-  menu_option "3" "彻底清理残留" "删除配置、证书和运行数据"
+  menu_section "请选择安装方式"
+  menu_option "1" "二进制安装" "默认；官方 Release，校验 SHA-256"
+  menu_option "2" "软件包安装" "添加 Grafana apt/rpm 软件源"
+  menu_option "3" "查看安装状态" "不修改系统"
+  menu_option "4" "彻底清理残留" "删除配置、证书和运行数据"
   menu_exit "0/q" "退出"
   while true; do
     local choice=""
-    read_editable choice "请选择 [1-3]（默认 1）："
+    read_editable choice "请选择 [1-4]（默认 1：二进制安装）："
     case "${choice}" in
-      ""|1) SELECTED_ACTION="install"; return ;;
-      2) SELECTED_ACTION="status"; return ;;
-      3) SELECTED_ACTION="purge"; return ;;
+      ""|1) set_install_method binary; SELECTED_ACTION="install"; return ;;
+      2) set_install_method package; SELECTED_ACTION="install"; return ;;
+      3) SELECTED_ACTION="status"; return ;;
+      4) SELECTED_ACTION="purge"; return ;;
       0|q|Q) SELECTED_ACTION="quit"; return ;;
       *) invalid_choice ;;
     esac
@@ -546,8 +701,8 @@ choose_install_action() {
 choose_maintenance_action() {
   set_interactive_device
   menu_section "请选择维护操作"
-  menu_option "1" "更新 Alloy 软件包" "保留节点名称、配置、证书和数据"
-  menu_option "2" "仅重新配置" "默认；不更新软件包"
+  menu_option "1" "更新 Alloy ${ALLOY_ARTIFACT_LABEL}" "保留节点名称、配置、证书和数据"
+  menu_option "2" "仅重新配置" "默认；不更新${ALLOY_ARTIFACT_LABEL}"
   menu_option "3" "查看状态与文件" "不修改系统"
   menu_option "4" "普通卸载" "保留配置、证书和运行数据"
   menu_option "5" "彻底清理" "永久删除配置、证书和运行数据"
@@ -650,7 +805,11 @@ install_suse() {
   zypper --non-interactive install alloy
 }
 
-install_package() {
+install_package_backend() {
+  if binary_is_installed || [[ -e "${ALLOY_BINARY_MARKER_FILE}" || \
+                               -e "${ALLOY_BINARY_SERVICE_FILE}" ]]; then
+    die "检测到二进制版 Alloy 残留；请先使用彻底清理，不能混用两种安装方式"
+  fi
   if command -v apt-get >/dev/null 2>&1; then
     install_debian
   elif command -v dnf >/dev/null 2>&1; then
@@ -664,7 +823,7 @@ install_package() {
   fi
 }
 
-remove_package() {
+remove_package_backend() {
   if command -v apt-get >/dev/null 2>&1; then
     apt-get remove -y alloy
   elif command -v dnf >/dev/null 2>&1; then
@@ -678,14 +837,234 @@ remove_package() {
   fi
 }
 
+detect_binary_arch() {
+  [[ "$(uname -s)" == "Linux" ]] || die "二进制安装仅支持 Linux"
+  case "$(uname -m)" in
+    x86_64|amd64) printf 'amd64\n' ;;
+    aarch64|arm64) printf 'arm64\n' ;;
+    *) die "Grafana Alloy 官方二进制不支持当前架构：$(uname -m)" ;;
+  esac
+}
+
+validate_alloy_version() {
+  local version="${1#v}"
+  [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || \
+    die "无效的 ALLOY_VERSION：$1"
+}
+
+release_digest() {
+  local metadata_file="$1"
+  local asset_name="$2"
+  awk -v wanted="${asset_name}" '
+    index($0, "\"name\": \"" wanted "\"") { found = 1; next }
+    found && /"digest"[[:space:]]*:/ {
+      line = $0
+      sub(/^.*"digest"[[:space:]]*:[[:space:]]*"sha256:/, "", line)
+      sub(/".*$/, "", line)
+      if (line ~ /^[0-9a-fA-F]+$/ && length(line) == 64) {
+        print tolower(line)
+        exit
+      }
+    }
+  ' "${metadata_file}"
+}
+
+release_version() {
+  local metadata_file="$1"
+  sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"[:space:]]*\)".*/\1/p' \
+    "${metadata_file}" | head -n 1
+}
+
+binary_download() {
+  local url="$1"
+  local destination="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl --fail --location --show-error --retry 3 --connect-timeout 15 \
+      --proto '=https' --progress-bar --output "${destination}" "${url}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget --tries=3 --timeout=15 --output-document="${destination}" "${url}"
+  else
+    die "需要 curl 或 wget 才能下载 Alloy"
+  fi
+}
+
+create_binary_service_account() {
+  BINARY_ACCOUNT_CREATED_THIS_RUN=0
+  BINARY_GROUP_CREATED_THIS_RUN=0
+  if ! getent group alloy >/dev/null 2>&1; then
+    groupadd --system alloy
+    BINARY_GROUP_CREATED_THIS_RUN=1
+  fi
+  if ! id alloy >/dev/null 2>&1; then
+    useradd --system --gid alloy --home-dir /nonexistent --no-create-home \
+      --shell /usr/sbin/nologin alloy
+    BINARY_ACCOUNT_CREATED_THIS_RUN=1
+  fi
+}
+
+write_binary_service() {
+  local service_temp="$1"
+  cat >"${service_temp}" <<EOF
+[Unit]
+Description=Grafana Alloy observability collector
+Documentation=https://grafana.com/docs/alloy/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=alloy
+Group=alloy
+Environment=HOSTNAME=%H
+WorkingDirectory=${DATA_DIR}
+ExecStart=${ALLOY_BINARY_FILE} run --storage.path=${DATA_DIR} ${CONFIG_FILE}
+ExecReload=/usr/bin/env kill -HUP \$MAINPID
+Restart=always
+RestartSec=5s
+TimeoutStopSec=20s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+ReadWritePaths=${DATA_DIR}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  install -o root -g root -m 0644 "${service_temp}" "${ALLOY_BINARY_SERVICE_FILE}"
+  systemctl daemon-reload
+}
+
+install_binary_backend() {
+  local metadata_file=""
+  local requested_version="${ALLOY_VERSION#v}"
+  local version=""
+  local arch=""
+  local asset_name=""
+  local archive_file=""
+  local digest=""
+  local api_url=""
+  local account_created=0
+  local group_created=0
+  local existing_account_marker=0
+  local existing_group_marker=0
+
+  package_is_installed && \
+    die "检测到软件包版 Alloy；请先使用软件包方式彻底清理，不能混用两种安装方式"
+  require_commands awk getent groupadd head id install mktemp mv sed sha256sum systemctl \
+    uname unzip useradd
+  arch="$(detect_binary_arch)"
+  if [[ "${ALLOY_VERSION}" == "latest" ]]; then
+    api_url="${ALLOY_RELEASE_API_URL%/}/latest"
+  else
+    validate_alloy_version "${ALLOY_VERSION}"
+    api_url="${ALLOY_RELEASE_API_URL%/}/tags/v${requested_version}"
+  fi
+
+  BINARY_WORK_DIR="$(mktemp -d -t alloy-binary-install.XXXXXXXX)"
+  metadata_file="${BINARY_WORK_DIR}/release.json"
+  info "读取 Grafana Alloy Release 元数据"
+  binary_download "${api_url}" "${metadata_file}"
+  version="$(release_version "${metadata_file}")"
+  [[ -n "${version}" ]] || die "无法从 GitHub Release API 读取 Alloy 版本"
+  if [[ "${ALLOY_VERSION}" != "latest" && "${version}" != "${requested_version}" ]]; then
+    die "Release API 返回版本 ${version}，与请求版本 ${requested_version} 不一致"
+  fi
+
+  asset_name="alloy-linux-${arch}.zip"
+  digest="$(release_digest "${metadata_file}" "${asset_name}")"
+  [[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || \
+    die "Release API 未提供 ${asset_name} 的有效 SHA-256 digest"
+  archive_file="${BINARY_WORK_DIR}/${asset_name}"
+  info "下载 Alloy v${version}（linux-${arch}）"
+  binary_download "${ALLOY_DOWNLOAD_BASE_URL%/}/v${version}/${asset_name}" "${archive_file}"
+  printf '%s  %s\n' "${digest}" "${archive_file}" | sha256sum --check --status || \
+    die "Alloy 发布包 SHA-256 校验失败"
+  result "Alloy v${version} 发布包 SHA-256 校验通过"
+
+  unzip -q "${archive_file}" -d "${BINARY_WORK_DIR}/extracted"
+  [[ -x "${BINARY_WORK_DIR}/extracted/alloy-linux-${arch}" ]] || \
+    die "发布包中缺少 alloy-linux-${arch} 可执行文件"
+
+  if [[ -r "${ALLOY_BINARY_MARKER_FILE}" ]]; then
+    existing_account_marker="$(sed -n 's/^account_created=//p' "${ALLOY_BINARY_MARKER_FILE}" | head -n 1)"
+    existing_group_marker="$(sed -n 's/^group_created=//p' "${ALLOY_BINARY_MARKER_FILE}" | head -n 1)"
+  fi
+  create_binary_service_account
+  account_created="${BINARY_ACCOUNT_CREATED_THIS_RUN}"
+  group_created="${BINARY_GROUP_CREATED_THIS_RUN}"
+  [[ "${existing_account_marker}" != "1" ]] || account_created=1
+  [[ "${existing_group_marker}" != "1" ]] || group_created=1
+
+  install -d -o root -g alloy -m 0750 "${CONFIG_DIR}"
+  install -d -o alloy -g alloy -m 0750 "${DATA_DIR}"
+  install -o root -g root -m 0755 "${BINARY_WORK_DIR}/extracted/alloy-linux-${arch}" \
+    "${BINARY_WORK_DIR}/alloy.new"
+  mv -f -- "${BINARY_WORK_DIR}/alloy.new" "${ALLOY_BINARY_FILE}"
+  write_binary_service "${BINARY_WORK_DIR}/alloy.service"
+  {
+    printf 'version=%s\n' "${version}"
+    printf 'account_created=%s\n' "${account_created}"
+    printf 'group_created=%s\n' "${group_created}"
+  } >"${BINARY_WORK_DIR}/install-marker"
+  install -o root -g alloy -m 0640 "${BINARY_WORK_DIR}/install-marker" "${ALLOY_BINARY_MARKER_FILE}"
+  rm -rf -- "${BINARY_WORK_DIR}"
+  BINARY_WORK_DIR=""
+  result "Alloy v${version} 已安装到 ${ALLOY_BINARY_FILE}"
+}
+
+remove_binary_backend() {
+  local remove_account=0
+  local remove_group=0
+  if [[ "${PURGE_MODE}" == "1" && -r "${ALLOY_BINARY_MARKER_FILE}" ]]; then
+    [[ "$(sed -n 's/^account_created=//p' "${ALLOY_BINARY_MARKER_FILE}" | head -n 1)" == "1" ]] && \
+      remove_account=1
+    [[ "$(sed -n 's/^group_created=//p' "${ALLOY_BINARY_MARKER_FILE}" | head -n 1)" == "1" ]] && \
+      remove_group=1
+  fi
+  if [[ "${ARTIFACT_WAS_INSTALLED}" == "0" ]]; then
+    [[ "${BINARY_ACCOUNT_CREATED_THIS_RUN}" != "1" ]] || remove_account=1
+    [[ "${BINARY_GROUP_CREATED_THIS_RUN}" != "1" ]] || remove_group=1
+  fi
+  systemctl disable --now alloy.service >/dev/null 2>&1 || true
+  rm -f -- "${ALLOY_BINARY_FILE}" "${ALLOY_BINARY_SERVICE_FILE}"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  if [[ "${remove_account}" == "1" ]]; then
+    command -v userdel >/dev/null 2>&1 && userdel alloy >/dev/null 2>&1 || true
+  fi
+  if [[ "${remove_group}" == "1" ]]; then
+    command -v groupdel >/dev/null 2>&1 && groupdel alloy >/dev/null 2>&1 || true
+  fi
+}
+
+install_artifact() {
+  case "${ALLOY_INSTALL_METHOD}" in
+    binary) install_binary_backend ;;
+    package) install_package_backend ;;
+    *) die "尚未选择 Alloy 安装方式" ;;
+  esac
+}
+
+remove_artifact() {
+  case "${ALLOY_INSTALL_METHOD}" in
+    binary) remove_binary_backend ;;
+    package) remove_package_backend ;;
+    *) die "无法确定 Alloy 安装方式" ;;
+  esac
+}
+
 begin_config_transaction() {
   WORK_DIR="$(mktemp -d -t alloy-config.XXXXXXXX)"
   CONFIG_EXISTED=0
   DATA_EXISTED=0
   SERVICE_WAS_ACTIVE=0
   SERVICE_WAS_ENABLED=0
-  PACKAGE_WAS_INSTALLED=0
-  is_installed && PACKAGE_WAS_INSTALLED=1
+  ARTIFACT_WAS_INSTALLED=0
+  is_installed && ARTIFACT_WAS_INSTALLED=1
   if [[ -d "${CONFIG_DIR}" ]]; then
     cp -a "${CONFIG_DIR}" "${WORK_DIR}/config-backup"
     CONFIG_EXISTED=1
@@ -700,9 +1079,11 @@ restore_config_transaction() {
   [[ "${TRANSACTION_ACTIVE}" == "1" ]] || return 0
   warn "配置操作未完成，正在恢复操作前状态"
   systemctl stop alloy.service >/dev/null 2>&1 || true
-  if [[ "${PACKAGE_WAS_INSTALLED}" == "0" ]] && is_installed; then
-    remove_package >/dev/null 2>&1 || warn "自动移除本次新安装的 Alloy 软件包失败，请手动检查"
-    info "本次新安装的 Alloy 软件包已回滚；Grafana 软件源和签名密钥仍保留"
+  if [[ "${ARTIFACT_WAS_INSTALLED}" == "0" ]] && \
+     { is_installed || [[ "${BINARY_ACCOUNT_CREATED_THIS_RUN}" == "1" || \
+                           "${BINARY_GROUP_CREATED_THIS_RUN}" == "1" ]]; }; then
+    remove_artifact >/dev/null 2>&1 || warn "自动移除本次新安装的 Alloy ${ALLOY_ARTIFACT_LABEL}失败，请手动检查"
+    info "本次新安装的 Alloy ${ALLOY_ARTIFACT_LABEL}已回滚"
   fi
   rm -rf -- "${CONFIG_DIR}"
   if [[ "${CONFIG_EXISTED}" == "1" ]]; then
@@ -1240,7 +1621,6 @@ configure_probe() {
     force_prompt=1
   fi
   require_commands awk cat chmod chown cmp cp getent install mktemp openssl readlink rm sha256sum systemctl usermod
-  [[ "${mode}" != "install" ]] || require_commands curl
   load_existing_settings
   begin_config_transaction
   collect_connection_settings "${force_prompt}"
@@ -1251,14 +1631,14 @@ configure_probe() {
 
   if [[ "${mode}" == "install" ]]; then
     printf '\n'
-    step "安装 Grafana Alloy 软件包"
-    info "软件包管理器将显示仓库刷新和下载进度"
-    install_package
-    result "Grafana Alloy 软件包安装完成"
+    step "安装 Grafana Alloy ${ALLOY_ARTIFACT_LABEL}"
+    info "${ALLOY_INSTALL_PROGRESS_TEXT}"
+    install_artifact
+    result "Grafana Alloy ${ALLOY_ARTIFACT_LABEL}安装完成"
   fi
 
   require_commands alloy
-  getent group alloy >/dev/null 2>&1 || die "Alloy 软件包未创建 alloy 系统组"
+  getent group alloy >/dev/null 2>&1 || die "Alloy 安装程序未创建 alloy 系统组"
   prepare_mtls_configuration
   if [[ "${RETURN_TO_MAIN}" == "1" ]]; then
     restore_config_transaction
@@ -1266,12 +1646,13 @@ configure_probe() {
   fi
   write_config
   start_service
+  persist_install_method
   commit_config_transaction
   print_completion_card "$([[ "${mode}" == "install" ]] && printf '安装完成' || printf '重新配置完成')"
 }
 
 update_probe() {
-  require_commands alloy curl
+  require_commands alloy
   printf '\n'
   step "校验现有配置"
   [[ -r "${CONFIG_FILE}" ]] || die "缺少 ${CONFIG_FILE}，请先选择仅重新配置"
@@ -1279,13 +1660,14 @@ update_probe() {
   result "现有配置校验通过"
 
   printf '\n'
-  step "更新 Grafana Alloy 软件包"
+  step "更新 Grafana Alloy ${ALLOY_ARTIFACT_LABEL}"
   info "现有配置、mTLS 证书和数据不会被修改"
-  install_package
+  install_artifact
+  persist_install_method
   systemctl restart alloy.service
   systemctl enable alloy.service >/dev/null
   systemctl is-active --quiet alloy.service || die "更新后 alloy.service 启动失败，请查看 journalctl -u alloy"
-  result "Alloy 软件包更新检查完成，服务运行正常"
+  result "Alloy ${ALLOY_ARTIFACT_LABEL}更新检查完成，服务运行正常"
   load_existing_settings
   print_completion_card "更新完成"
 }
@@ -1306,6 +1688,7 @@ show_status() {
 
   print_card "${status_color}" "运行状态" \
     "安装版本" "${version:-未安装}" \
+    "安装方式" "$([[ "${ALLOY_INSTALL_METHOD}" == "binary" ]] && printf '官方 Release 二进制' || printf 'Grafana 软件包')" \
     "服务状态" "${active:-未知}" \
     "开机自启" "${enabled:-未知}" \
     "节点名称" "${MONITOR_NAME:-未配置}" \
@@ -1351,16 +1734,16 @@ uninstall_probe() {
   fi
 
   printf '\n'
-  step "停止服务并卸载软件包"
+  step "停止服务并卸载${ALLOY_ARTIFACT_LABEL}"
   systemctl disable --now alloy.service >/dev/null 2>&1 || true
-  if is_installed; then
-    remove_package
+  if has_install_artifacts; then
+    remove_artifact
   else
-    info "未检测到 Alloy 软件包，跳过软件包删除"
+    info "未检测到 Alloy ${ALLOY_ARTIFACT_LABEL}，跳过程序删除"
   fi
   systemctl daemon-reload >/dev/null 2>&1 || true
   systemctl reset-failed alloy.service >/dev/null 2>&1 || true
-  result "Alloy 软件包卸载步骤完成"
+  result "Alloy ${ALLOY_ARTIFACT_LABEL}卸载步骤完成"
 
   if [[ "${PURGE_MODE}" == "1" ]]; then
     printf '\n'
@@ -1382,6 +1765,10 @@ cleanup() {
   if [[ -n "${WORK_DIR}" && -d "${WORK_DIR}" ]]; then
     rm -rf -- "${WORK_DIR}"
     WORK_DIR=""
+  fi
+  if [[ -n "${BINARY_WORK_DIR}" && -d "${BINARY_WORK_DIR}" ]]; then
+    rm -rf -- "${BINARY_WORK_DIR}"
+    BINARY_WORK_DIR=""
   fi
 }
 
@@ -1422,6 +1809,7 @@ main() {
   step "检查运行权限和基础依赖"
   require_root
   require_commands awk head rm sed systemctl
+  initialize_install_method
   result "root 权限和基础依赖检查通过"
 
   if [[ "${requested_action}" == "install" || "${requested_action}" == "--install" || "${requested_action}" == "-i" ]]; then

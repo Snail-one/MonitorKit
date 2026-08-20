@@ -121,6 +121,21 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/p
   sudo bash
 ```
 
+首次运行会显示安装方式菜单：默认使用官方 GitHub Release 二进制，也可以选择
+Grafana apt/rpm 软件包。固定二进制版本时：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | \
+  sudo env ALLOY_VERSION=1.18.0 bash
+```
+
+无人值守时可设置 `ALLOY_INSTALL_METHOD=binary`（默认）或 `package`。二进制方式
+支持 Linux AMD64/ARM64，从对应 GitHub Release API 读取版本和官方 SHA-256
+digest，校验 `alloy-linux-<架构>.zip` 后安装到 `/usr/local/bin/alloy`，并自行创建
+`alloy` 系统账号及 `/etc/systemd/system/alloy.service`。选择软件包方式时则使用
+Grafana apt/rpm 软件源。安装方式记录在 `/etc/alloy/install-method`，更新、状态、
+重新配置和卸载会自动沿用原方式，并阻止两种方式混装。
+
 node_exporter 指标探针：
 
 ```bash
@@ -129,7 +144,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/p
 
 脚本会先要求填写唯一的监控节点名称，再分别询问 Prometheus、Loki 是否启用 mTLS，首次配置均默认推荐启用。两者都启用 mTLS 时，可选择录入一套共享证书或分别配置；共享模式只录入一次 CA、完整客户端证书和私钥，校验后仍分别写入 `prometheus-*` 与 `loki-*` 受管文件，两个服务的地址和 `server_name` 始终分别设置。指标统一写入 `job="alloy-one"`，节点名称会同时写入指标的 `instance`、`host` 标签和日志的 `host` 标签。journal 日志还会带上 `unit`（systemd 服务名）和 `ident`，Grafana 可按主机或服务筛选。系统指标原生提供的 `nodename` 保持真实主机名，不会被脚本覆盖。启用 mTLS 时，裸 `IP:端口` 自动补为 `https://` 并填写客户端证书；选择不启用时会先警告明文传输风险，再次确认后裸地址才补为 `http://`。通过管道执行时会从 `/dev/tty` 读取输入，不会与下载脚本使用的标准输入冲突。
 
-Alloy 已安装时，再次运行同一命令会进入维护菜单，可选择更新软件包、仅重新配置、查看状态、普通卸载或彻底清理。“仅重新配置”可修改节点名称；节点名称持久化在 `/etc/alloy/monitor.name`。交互配置会按 `vim → nano → vi` 自动选择编辑器，直接填写 `/etc/alloy/tls/` 中的受管 PEM 文件；配置和服务启动失败会恢复操作前的配置、节点名称与证书，不保留无效副本。
+Alloy 已安装时，再次运行同一命令会进入维护菜单，可选择按原方式更新、仅重新配置、查看状态、普通卸载或彻底清理。“仅重新配置”可修改节点名称；节点名称持久化在 `/etc/alloy/monitor.name`。交互配置会按 `vim → nano → vi` 自动选择编辑器，直接填写 `/etc/alloy/tls/` 中的受管 PEM 文件；配置和服务启动失败会恢复操作前的配置、节点名称与证书，不保留无效副本。
 
 也可以直接执行维护动作：
 
