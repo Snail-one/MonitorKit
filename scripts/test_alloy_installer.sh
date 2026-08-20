@@ -8,7 +8,7 @@ NODE_EXPORTER_INSTALLER="${ROOT_DIR}/scripts/probes/node_exporter/install.sh"
 
 bash -n "${INSTALLER}" "${NODE_EXPORTER_INSTALLER}"
 
-unset PROMETHEUS_MTLS_ENABLED LOKI_MTLS_ENABLED MONITOR_NAME ALLOY_INSTALL_METHOD
+unset PROMETHEUS_MTLS_ENABLED LOKI_MTLS_ENABLED MONITOR_NAME
 ALLOY_INSTALLER_SOURCE_ONLY=1 source "${INSTALLER}"
 if [[ "${PROMETHEUS_MTLS_ENABLED}" != "1" || "${LOKI_MTLS_ENABLED}" != "1" ]]; then
   printf 'Alloy 首次配置没有默认启用 Prometheus/Loki mTLS\n' >&2
@@ -80,10 +80,9 @@ fi
 printf '\n' >"${TEST_INPUT}"
 INTERACTIVE_DEVICE="${TEST_INPUT}"
 SELECTED_ACTION="status"
-ALLOY_INSTALL_METHOD=""
 choose_install_action >/dev/null 2>&1
-if [[ "${SELECTED_ACTION}" != "install" || "${ALLOY_INSTALL_METHOD}" != "binary" ]]; then
-  printf 'Alloy 安装菜单默认项不是二进制安装\n' >&2
+if [[ "${SELECTED_ACTION}" != "install" ]]; then
+  printf 'Alloy 安装菜单默认项不是官方软件包安装\n' >&2
   exit 1
 fi
 
@@ -91,8 +90,8 @@ printf '2\n' >"${TEST_INPUT}"
 INTERACTIVE_DEVICE="${TEST_INPUT}"
 SELECTED_ACTION="status"
 choose_install_action >/dev/null 2>&1
-if [[ "${SELECTED_ACTION}" != "install" || "${ALLOY_INSTALL_METHOD}" != "package" ]]; then
-  printf 'Alloy 安装菜单没有选择软件包安装\n' >&2
+if [[ "${SELECTED_ACTION}" != "status" ]]; then
+  printf 'Alloy 安装菜单没有选择查看状态\n' >&2
   exit 1
 fi
 
@@ -124,8 +123,9 @@ for expected in \
   '/etc/alloy/tls/' \
   'MONITOR_NAME=debian-web-01' \
   'Prometheus 和 Loki 均默认推荐 mTLS' \
-  'ALLOY_INSTALL_METHOD=binary' \
-  '/etc/alloy/install-method' \
+  'ALLOY_VERSION=latest' \
+  '官方 DEB/RPM' \
+  '不安装独立二进制' \
   '普通卸载保留 /etc/alloy 和 /var/lib/alloy'; do
   grep -Fq -- "${expected}" <<<"${HELP_OUTPUT}" || {
     printf 'Alloy 帮助缺少：%s\n' "${expected}" >&2
@@ -142,7 +142,7 @@ for expected in \
   '共享证书已分别写入 Prometheus 与 Loki 的受管文件' \
   'begin_config_transaction()' \
   'restore_config_transaction()' \
-  'ARTIFACT_WAS_INSTALLED' \
+  'PACKAGE_WAS_INSTALLED' \
   'choose_backend_mtls_mode()' \
   '确认接受风险并让 ${label} 使用 HTTP' \
   'read_editable()' \
@@ -161,7 +161,7 @@ for expected in \
   'alloy validate "${temp_file}"' \
   'rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"' \
   '"未清理"' \
-  'https://apt.grafana.com/gpg.key'; do
+  '不会添加 Grafana 软件源'; do
   grep -Fq -- "${expected}" "${INSTALLER}" || {
     printf 'Alloy 维护框架缺少：%s\n' "${expected}" >&2
     exit 1
@@ -185,12 +185,12 @@ if ! NO_COLOR=1 ALLOY_INSTALLER_SOURCE_ONLY=1 bash -c '
   printf '\''%s\n'\'' \
     '\''{"tag_name": "v1.18.0", "assets": ['\'' \
     '\''  {'\'' \
-    '\''    "name": "alloy-linux-amd64.zip",'\'' \
+    '\''    "name": "alloy-1.18.0-1.amd64.deb",'\'' \
     '\''    "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"'\'' \
     '\''  }'\'' \
     '\'']}'\'' >"${metadata}"
   [[ "$(release_version "${metadata}")" == "1.18.0" ]]
-  [[ "$(release_digest "${metadata}" alloy-linux-amd64.zip)" == \
+  [[ "$(release_digest "${metadata}" alloy-1.18.0-1.amd64.deb)" == \
      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" ]]
   validate_alloy_version v1.18.0
 ' _ "${INSTALLER}"; then
@@ -199,20 +199,32 @@ if ! NO_COLOR=1 ALLOY_INSTALLER_SOURCE_ONLY=1 bash -c '
 fi
 
 for expected in \
-  'alloy-linux-${arch}.zip' \
+  'alloy-${version}-1.${arch}.${package_system}' \
   'sha256sum --check --status' \
-  'ExecStart=${ALLOY_BINARY_FILE} run --storage.path=${DATA_DIR} ${CONFIG_FILE}' \
-  'User=alloy' \
-  'ReadWritePaths=${DATA_DIR}' \
-  'install_binary_backend()' \
-  'install_package_backend()' \
-  'persist_install_method()' \
+  'install_official_package()' \
+  'dpkg --force-confold --install "${package_file}"' \
+  'rpm -Uvh --replacepkgs "${package_file}"' \
+  'detect_package_arch()' \
+  'remove_official_package()' \
   'has_install_artifacts()' \
-  '不能混用两种安装方式'; do
+  '官方 Release DEB/RPM 软件包'; do
   grep -Fq -- "${expected}" "${INSTALLER}" || {
-    printf 'Alloy 合并安装器缺少：%s\n' "${expected}" >&2
+    printf 'Alloy 官方软件包安装器缺少：%s\n' "${expected}" >&2
     exit 1
   }
+done
+
+for forbidden in \
+  'install_binary_backend()' \
+  'write_binary_service()' \
+  'create_binary_service_account()' \
+  'alloy-linux-${arch}.zip' \
+  'ALLOY_INSTALL_METHOD' \
+  'https://apt.grafana.com'; do
+  if grep -Fq -- "${forbidden}" "${INSTALLER}"; then
+    printf 'Alloy 安装器仍包含已移除的安装逻辑：%s\n' "${forbidden}" >&2
+    exit 1
+  fi
 done
 
 
