@@ -313,7 +313,7 @@ Grafana 软件源与签名密钥
 alloy 用户、组及其附加组成员关系
 ```
 
-`purge` 会在卸载软件包后额外删除 `/etc/alloy/` 和 `/var/lib/alloy/`。当记录的安装方式为 `repository` 时，它还会删除当前发行版对应的 Grafana 仓库配置；Debian/Ubuntu 会在确认没有其他 APT 源引用后删除 `/etc/apt/keyrings/grafana.asc`。RPM 数据库中的 Grafana 签名密钥视为可能被其他 Grafana 软件包共享，因此保留。脚本也不会清理软件包缓存、journald 历史日志或主动删除 `alloy` 系统账号。Debian/Ubuntu 的普通卸载使用 `apt-get remove`，彻底清理使用 `apt-get purge`。
+`purge` 会在卸载软件包后额外删除 `/etc/alloy/` 和 `/var/lib/alloy/`，并单独询问是否删除当前发行版对应的 Grafana 仓库配置，默认确认删除。这个判断不依赖 `/etc/alloy/install-method`；确认后即使 Alloy 使用 Release 方式安装，也会清理 Grafana 软件源。Debian/Ubuntu 同时直接删除 `/etc/apt/keyrings/grafana.asc`，不检查是否有其他 APT 源引用。RPM 数据库中的 Grafana 签名密钥仍然保留。脚本也不会清理软件包缓存、journald 历史日志或主动删除 `alloy` 系统账号。Debian/Ubuntu 的普通卸载使用 `apt-get remove`，彻底清理使用 `apt-get purge`。
 
 卸载 Alloy 不会卸载同机存在的 node_exporter，也不会删除中心服务器上的 Prometheus/Loki 数据。
 

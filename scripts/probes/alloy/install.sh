@@ -72,6 +72,7 @@ SERVICE_WAS_ACTIVE=0
 SERVICE_WAS_ENABLED=0
 PACKAGE_WAS_INSTALLED=0
 DATA_EXISTED=0
+REPOSITORY_REMOVED=0
 
 install_method_label() {
   case "${ALLOY_INSTALL_METHOD}" in
@@ -201,13 +202,14 @@ print_uninstall_card() {
   local title="$1"
   local retained="$2"
   local not_removed="Grafana 软件源、签名密钥、软件包缓存和 journald 历史日志"
-  local repository_status="未由当前安装方式添加"
-  if [[ "${ALLOY_INSTALL_METHOD}" == "repository" ]]; then
-    repository_status="已保留"
-  fi
+  local repository_status="已保留"
   if [[ "${PURGE_MODE}" == "1" ]]; then
     not_removed="软件包缓存、journald 历史日志及 RPM 数据库中的共享签名密钥"
-    [[ "${ALLOY_INSTALL_METHOD}" != "repository" ]] || repository_status="已清理"
+    if [[ "${REPOSITORY_REMOVED}" == "1" ]]; then
+      repository_status="已清理"
+    else
+      repository_status="按用户选择保留"
+    fi
   fi
   success_card "${title}" \
     "已删除" "Alloy 软件包及其服务" \
@@ -266,8 +268,8 @@ shared 模式只需提供 ALLOY_MTLS_CA_FILE、ALLOY_MTLS_CERT_FILE 和
 ALLOY_MTLS_KEY_FILE；内容会校验后分别写入 Prometheus/Loki 对应文件。
 separate 模式分别使用 PROMETHEUS_MTLS_* 和 LOKI_MTLS_* 三个证书变量。
 
-普通卸载保留 /etc/alloy、/var/lib/alloy 和 Grafana 软件源。purge 会删除配置、
-数据，并清理 repository 模式添加的 Grafana 软件源；不会清理软件包缓存、
+普通卸载保留 /etc/alloy、/var/lib/alloy 和 Grafana 软件源。purge 会删除配置和
+数据，并单独询问是否删除 Grafana 软件源（默认删除）；不会清理软件包缓存、
 journald 历史日志或 RPM 数据库中的共享签名密钥。
 顶层菜单使用 0/q 安全退出，子菜单使用 0/q 取消并返回；NO_COLOR=1
 可关闭颜色，FORCE_COLOR=1 可在受支持的非交互输出中强制启用颜色。
@@ -676,12 +678,8 @@ choose_maintenance_action() {
 }
 
 choose_uninstall_mode() {
-  local purge_targets="${CONFIG_DIR}、${DATA_DIR}"
-  local irreversible_items="mTLS 证书、节点名称、配置和运行数据"
-  if [[ "${ALLOY_INSTALL_METHOD}" == "repository" ]]; then
-    purge_targets="${purge_targets}、Grafana 软件源"
-    irreversible_items="${irreversible_items}和本脚本添加的仓库配置"
-  fi
+  local purge_targets="${CONFIG_DIR}、${DATA_DIR}、Grafana 软件源（再次确认）"
+  local irreversible_items="mTLS 证书、节点名称、配置、运行数据和仓库配置"
   set_interactive_device
   menu_section "请选择卸载方式"
   menu_option "1" "普通卸载" "默认；保留 /etc/alloy 和 /var/lib/alloy"
@@ -734,28 +732,15 @@ remove_official_package() {
 }
 
 remove_grafana_repository() {
-  local source_file=""
-  local apt_key_in_use=0
   if command -v apt-get >/dev/null 2>&1; then
-    rm -f -- /etc/apt/sources.list.d/grafana.list
-    for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*; do
-      [[ -r "${source_file}" ]] || continue
-      if grep -qF '/etc/apt/keyrings/grafana.asc' "${source_file}"; then
-        apt_key_in_use=1
-        break
-      fi
-    done
-    if [[ "${apt_key_in_use}" == "0" ]]; then
-      rm -f -- /etc/apt/keyrings/grafana.asc
-    else
-      info "Grafana APT 签名密钥仍被其他软件源引用，予以保留"
-    fi
+    rm -f -- /etc/apt/sources.list.d/grafana.list /etc/apt/keyrings/grafana.asc
   elif command -v zypper >/dev/null 2>&1; then
     zypper --non-interactive removerepo grafana >/dev/null 2>&1 || true
     rm -f -- /etc/zypp/repos.d/grafana.repo
   else
     rm -f -- /etc/yum.repos.d/grafana.repo
   fi
+  REPOSITORY_REMOVED=1
   result "Grafana 官方软件源配置已清理"
 }
 
@@ -1637,9 +1622,6 @@ uninstall_probe() {
   local mode="${1:-ask}"
   local current_version=""
   local purge_confirmation="确认永久删除 Alloy 配置、证书和运行数据"
-  if [[ "${ALLOY_INSTALL_METHOD}" == "repository" ]]; then
-    purge_confirmation="确认永久删除 Alloy 配置、证书、运行数据和 Grafana 软件源"
-  fi
   current_version="$(installed_version)"
   print_banner "卸载与清理"
   step "检查安装状态"
@@ -1686,11 +1668,13 @@ uninstall_probe() {
 
   if [[ "${PURGE_MODE}" == "1" ]]; then
     printf '\n'
-    if [[ "${ALLOY_INSTALL_METHOD}" == "repository" ]]; then
-      step "清理 Grafana 官方软件源"
+    step "确认是否清理 Grafana 官方软件源"
+    if ! detect_interactive_device || ask_yes_no_default "确认删除 Grafana 官方软件源" yes; then
       remove_grafana_repository
-      printf '\n'
+    else
+      info "已按用户选择保留 Grafana 官方软件源"
     fi
+    printf '\n'
     step "删除受管配置、mTLS 证书和运行数据"
     rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"
     result "已删除 ${CONFIG_DIR} 和 ${DATA_DIR}"

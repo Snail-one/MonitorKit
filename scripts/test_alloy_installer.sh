@@ -122,6 +122,13 @@ if [[ "${RETURN_TO_MAIN}" != "1" ]]; then
   exit 1
 fi
 
+printf '\n' >"${TEST_INPUT}"
+INTERACTIVE_DEVICE="${TEST_INPUT}"
+if ! ask_yes_no_default "确认删除 Grafana 官方软件源" yes; then
+  printf 'Alloy 软件源删除确认的默认项不是确认删除\n' >&2
+  exit 1
+fi
+
 HELP_OUTPUT="$(NO_COLOR=1 bash "${INSTALLER}" --help)"
 for expected in \
   'install.sh reconfigure' \
@@ -183,7 +190,8 @@ for expected in \
   'prometheus_tls_config=""' \
   'alloy validate "${temp_file}"' \
   'rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"' \
-  '[[ "${ALLOY_INSTALL_METHOD}" == "repository" ]]' \
+  'ask_yes_no_default "确认删除 Grafana 官方软件源" yes' \
+  'REPOSITORY_REMOVED=1' \
   '"未清理"'; do
   grep -Fq -- "${expected}" "${INSTALLER}" || {
     printf 'Alloy 维护框架缺少：%s\n' "${expected}" >&2
