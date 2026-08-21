@@ -9,6 +9,7 @@ readonly CONFIG_FILE="${CONFIG_DIR}/config.alloy"
 readonly DATA_DIR="/var/lib/alloy"
 readonly TLS_DIR="${CONFIG_DIR}/tls"
 readonly MONITOR_NAME_FILE="${CONFIG_DIR}/monitor.name"
+readonly INSTALL_METHOD_FILE="${CONFIG_DIR}/install-method"
 
 PROMETHEUS_URL_PRESET=0
 LOKI_URL_PRESET=0
@@ -16,16 +17,19 @@ PROMETHEUS_MTLS_MODE_PRESET=0
 LOKI_MTLS_MODE_PRESET=0
 ALLOY_MTLS_CERT_MODE_PRESET=0
 MONITOR_NAME_PRESET=0
+ALLOY_INSTALL_METHOD_PRESET=0
 [[ -n "${PROMETHEUS_URL+x}" ]] && PROMETHEUS_URL_PRESET=1
 [[ -n "${LOKI_URL+x}" ]] && LOKI_URL_PRESET=1
 [[ -n "${PROMETHEUS_MTLS_ENABLED+x}" ]] && PROMETHEUS_MTLS_MODE_PRESET=1
 [[ -n "${LOKI_MTLS_ENABLED+x}" ]] && LOKI_MTLS_MODE_PRESET=1
 [[ -n "${ALLOY_MTLS_CERT_MODE+x}" ]] && ALLOY_MTLS_CERT_MODE_PRESET=1
 [[ -n "${MONITOR_NAME+x}" ]] && MONITOR_NAME_PRESET=1
+[[ -n "${ALLOY_INSTALL_METHOD+x}" ]] && ALLOY_INSTALL_METHOD_PRESET=1
 
 PROMETHEUS_URL="${PROMETHEUS_URL:-}"
 LOKI_URL="${LOKI_URL:-}"
 MONITOR_NAME="${MONITOR_NAME:-}"
+ALLOY_INSTALL_METHOD="${ALLOY_INSTALL_METHOD:-}"
 ALLOY_VERSION="${ALLOY_VERSION:-latest}"
 ALLOY_RELEASE_API_URL="${ALLOY_RELEASE_API_URL:-https://api.github.com/repos/grafana/alloy/releases}"
 ALLOY_DOWNLOAD_BASE_URL="${ALLOY_DOWNLOAD_BASE_URL:-https://github.com/grafana/alloy/releases/download}"
@@ -68,6 +72,14 @@ SERVICE_WAS_ACTIVE=0
 SERVICE_WAS_ENABLED=0
 PACKAGE_WAS_INSTALLED=0
 DATA_EXISTED=0
+
+install_method_label() {
+  case "${ALLOY_INSTALL_METHOD}" in
+    repository) printf 'Grafana 官方软件源' ;;
+    release) printf '官方 Release DEB/RPM 软件包' ;;
+    *) printf '未确定' ;;
+  esac
+}
 
 init_colors() {
   if [[ -n "${NO_COLOR+x}" ]]; then
@@ -175,7 +187,7 @@ print_completion_card() {
   local title="$1"
   success_card "${title}" \
     "服务" "alloy.service（运行中、开机自启）" \
-    "安装方式" "官方 Release DEB/RPM 软件包" \
+    "安装方式" "$(install_method_label)" \
     "节点名称" "${MONITOR_NAME}" \
     "指标中心" "${PROMETHEUS_URL}" \
     "日志中心" "${LOKI_URL}" \
@@ -191,7 +203,7 @@ print_uninstall_card() {
   success_card "${title}" \
     "已删除" "Alloy 软件包及其服务" \
     "配置与数据" "${retained}" \
-    "未清理" "journald 历史日志" \
+    "未清理" "Grafana 软件源、签名密钥、软件包缓存和 journald 历史日志" \
     "系统账号" "由官方 DEB/RPM 软件包决定是否保留"
 }
 
@@ -201,8 +213,8 @@ Grafana Alloy 指标与日志统一探针维护脚本。
 
 用法：
   curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | sudo bash
-  sudo ./install.sh                 # 安装官方 DEB/RPM 或进入维护菜单
-  sudo ./install.sh update          # 更新官方软件包，保留现有配置
+  sudo ./install.sh                 # 选择官方软件源或 Release 软件包安装
+  sudo ./install.sh update          # 按已选来源更新，保留现有配置
   sudo ./install.sh reconfigure     # 仅重新配置，不更新 Alloy 程序
   sudo ./install.sh status          # 查看运行状态和受管文件
   sudo ./install.sh uninstall       # 交互选择普通卸载或彻底清理
@@ -213,10 +225,13 @@ Grafana Alloy 指标与日志统一探针维护脚本。
 选择不启用时会显示明文传输风险并要求再次确认，然后使用普通 HTTP。
 
 安装来源：
-  ALLOY_VERSION=latest               # 官方 Release 版本，也可固定为 1.18.0
+  ALLOY_INSTALL_METHOD=release       # 默认；GitHub Release DEB/RPM 直装
+  ALLOY_INSTALL_METHOD=repository    # Grafana 官方 apt/rpm 软件源
+  ALLOY_VERSION=latest               # 仅 Release 模式；也可固定为 1.18.0
 
-脚本从 GitHub Release 下载与当前系统匹配的官方 DEB/RPM，校验官方 SHA-256
-后使用 dpkg/rpm 安装；不会添加 Grafana 软件源，也不安装独立二进制。
+交互安装可选择添加 Grafana 官方软件源并通过 apt/dnf/yum/zypper 安装，或从
+GitHub Release 下载匹配当前系统的 DEB/RPM、校验官方 SHA-256 后直装。
+选择会记录在 /etc/alloy/install-method，后续更新自动沿用；不安装独立二进制。
 
 无人值守配置变量：
   MONITOR_NAME=debian-web-01
@@ -242,7 +257,7 @@ ALLOY_MTLS_KEY_FILE；内容会校验后分别写入 Prometheus/Loki 对应文�
 separate 模式分别使用 PROMETHEUS_MTLS_* 和 LOKI_MTLS_* 三个证书变量。
 
 普通卸载保留 /etc/alloy 和 /var/lib/alloy；purge 会删除这两个目录。
-卸载不会清理 journald 历史日志。
+卸载不会清理 Grafana 软件源、签名密钥、软件包缓存或 journald 历史日志。
 顶层菜单使用 0/q 安全退出，子菜单使用 0/q 取消并返回；NO_COLOR=1
 可关闭颜色，FORCE_COLOR=1 可在受支持的非交互输出中强制启用颜色。
 EOF
@@ -488,6 +503,64 @@ package_is_installed() {
   command -v rpm >/dev/null 2>&1 && rpm -q alloy >/dev/null 2>&1
 }
 
+normalize_install_method() {
+  case "${1,,}" in
+    repository|repo|package) printf 'repository\n' ;;
+    release|direct) printf 'release\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+grafana_repository_configured() {
+  local repo_file=""
+  if [[ -r /etc/apt/sources.list.d/grafana.list ]] &&
+     grep -qF 'apt.grafana.com' /etc/apt/sources.list.d/grafana.list; then
+    return 0
+  fi
+  if [[ -r /etc/yum.repos.d/grafana.repo ]] &&
+     grep -qF 'rpm.grafana.com' /etc/yum.repos.d/grafana.repo; then
+    return 0
+  fi
+  for repo_file in /etc/zypp/repos.d/*.repo; do
+    [[ -r "${repo_file}" ]] || continue
+    grep -qF 'rpm.grafana.com' "${repo_file}" && return 0
+  done
+  return 1
+}
+
+persisted_install_method() {
+  local method=""
+  [[ -r "${INSTALL_METHOD_FILE}" ]] || return 1
+  IFS= read -r method <"${INSTALL_METHOD_FILE}" || true
+  normalize_install_method "${method}"
+}
+
+initialize_install_method() {
+  local detected=""
+  if [[ "${ALLOY_INSTALL_METHOD_PRESET}" == "1" ]]; then
+    detected="$(normalize_install_method "${ALLOY_INSTALL_METHOD}" || true)"
+    [[ -n "${detected}" ]] || die "ALLOY_INSTALL_METHOD 只支持 repository 或 release"
+    ALLOY_INSTALL_METHOD="${detected}"
+    return 0
+  fi
+  detected="$(persisted_install_method || true)"
+  if [[ -n "${detected}" ]]; then
+    ALLOY_INSTALL_METHOD="${detected}"
+  elif package_is_installed && grafana_repository_configured; then
+    ALLOY_INSTALL_METHOD="repository"
+  else
+    ALLOY_INSTALL_METHOD="release"
+  fi
+}
+
+persist_install_method() {
+  getent group alloy >/dev/null 2>&1 || die "Alloy 安装程序未创建 alloy 系统组"
+  install -d -o root -g alloy -m 0750 "${CONFIG_DIR}"
+  printf '%s\n' "${ALLOY_INSTALL_METHOD}" >"${INSTALL_METHOD_FILE}"
+  chown root:alloy "${INSTALL_METHOD_FILE}"
+  chmod 0640 "${INSTALL_METHOD_FILE}"
+}
+
 installed_version() {
   if command -v dpkg-query >/dev/null 2>&1 && \
      [[ "$(dpkg-query -W -f='${Status}' alloy 2>/dev/null || true)" == "install ok installed" ]]; then
@@ -547,18 +620,20 @@ load_existing_settings() {
 
 choose_install_action() {
   set_interactive_device
-  menu_section "请选择操作"
-  menu_option "1" "安装官方 Alloy 软件包" "默认；下载 DEB/RPM 并校验 SHA-256"
-  menu_option "2" "查看安装状态" "不修改系统"
-  menu_option "3" "彻底清理残留" "删除配置、证书和运行数据"
+  menu_section "请选择安装方式"
+  menu_option "1" "GitHub Release 软件包安装" "默认；下载 DEB/RPM 并校验 SHA-256"
+  menu_option "2" "Grafana 官方软件源安装" "apt/dnf/yum/zypper，可随系统更新"
+  menu_option "3" "查看安装状态" "不修改系统"
+  menu_option "4" "彻底清理残留" "删除配置、证书和运行数据"
   menu_exit "0/q" "退出"
   while true; do
     local choice=""
-    read_editable choice "请选择 [1-3]（默认 1）："
+    read_editable choice "请选择 [1-4]（默认 1：Release 软件包）："
     case "${choice}" in
-      ""|1) SELECTED_ACTION="install"; return ;;
-      2) SELECTED_ACTION="status"; return ;;
-      3) SELECTED_ACTION="purge"; return ;;
+      ""|1) ALLOY_INSTALL_METHOD="release"; SELECTED_ACTION="install"; return ;;
+      2) ALLOY_INSTALL_METHOD="repository"; SELECTED_ACTION="install"; return ;;
+      3) SELECTED_ACTION="status"; return ;;
+      4) SELECTED_ACTION="purge"; return ;;
       0|q|Q) SELECTED_ACTION="quit"; return ;;
       *) invalid_choice ;;
     esac
@@ -568,7 +643,7 @@ choose_install_action() {
 choose_maintenance_action() {
   set_interactive_device
   menu_section "请选择维护操作"
-  menu_option "1" "更新 Alloy 官方软件包" "保留节点名称、配置、证书和数据"
+  menu_option "1" "更新 Alloy（$(install_method_label)）" "保留节点名称、配置、证书和数据"
   menu_option "2" "仅重新配置" "默认；不更新软件包"
   menu_option "3" "查看状态与文件" "不修改系统"
   menu_option "4" "普通卸载" "保留配置、证书和运行数据"
@@ -625,6 +700,12 @@ remove_official_package() {
     die "无效的软件包卸载模式：${removal_mode}"
   if command -v apt-get >/dev/null 2>&1; then
     apt-get "${removal_mode}" -y alloy
+  elif command -v dnf >/dev/null 2>&1; then
+    dnf remove -y alloy
+  elif command -v yum >/dev/null 2>&1; then
+    yum remove -y alloy
+  elif command -v zypper >/dev/null 2>&1; then
+    zypper --non-interactive remove alloy
   elif command -v dpkg >/dev/null 2>&1; then
     dpkg "--${removal_mode}" alloy
   elif command -v rpm >/dev/null 2>&1 && rpm -q alloy >/dev/null 2>&1; then
@@ -698,6 +779,106 @@ download_release_file() {
   else
     die "需要 curl 或 wget 才能下载 Alloy 官方软件包"
   fi
+}
+
+install_debian_repository_package() {
+  local mode="$1"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y ca-certificates curl gpg
+  install -d -m 0755 /etc/apt/keyrings
+  download_release_file https://apt.grafana.com/gpg-full.key /etc/apt/keyrings/grafana.asc
+  chmod 0644 /etc/apt/keyrings/grafana.asc
+  printf '%s\n' \
+    'deb [signed-by=/etc/apt/keyrings/grafana.asc] https://apt.grafana.com stable main' \
+    >/etc/apt/sources.list.d/grafana.list
+  apt-get update
+  if [[ "${mode}" == "update" ]]; then
+    apt-get -o Dpkg::Options::=--force-confold install -y --only-upgrade alloy
+  else
+    apt-get -o Dpkg::Options::=--force-confold install -y alloy
+  fi
+}
+
+install_rpm_repository_package() {
+  local package_manager="$1"
+  local mode="$2"
+  local key_file=""
+  "${package_manager}" install -y ca-certificates curl
+  PACKAGE_WORK_DIR="$(mktemp -d -t alloy-repository-install.XXXXXXXX)"
+  key_file="${PACKAGE_WORK_DIR}/grafana.key"
+  download_release_file https://rpm.grafana.com/gpg.key "${key_file}"
+  rpm --import "${key_file}"
+  rm -rf -- "${PACKAGE_WORK_DIR}"
+  PACKAGE_WORK_DIR=""
+  install -d -m 0755 /etc/yum.repos.d
+  tee /etc/yum.repos.d/grafana.repo >/dev/null <<'EOF'
+[grafana]
+name=grafana
+baseurl=https://rpm.grafana.com
+repo_gpgcheck=1
+enabled=1
+gpgcheck=1
+gpgkey=https://rpm.grafana.com/gpg.key
+sslverify=1
+sslcacert=/etc/pki/tls/certs/ca-bundle.crt
+EOF
+  if [[ "${mode}" == "update" ]]; then
+    "${package_manager}" upgrade -y alloy
+  else
+    "${package_manager}" install -y alloy
+  fi
+}
+
+install_suse_repository_package() {
+  local mode="$1"
+  local key_file=""
+  zypper --non-interactive install ca-certificates curl
+  PACKAGE_WORK_DIR="$(mktemp -d -t alloy-repository-install.XXXXXXXX)"
+  key_file="${PACKAGE_WORK_DIR}/grafana.key"
+  download_release_file https://rpm.grafana.com/gpg.key "${key_file}"
+  rpm --import "${key_file}"
+  rm -rf -- "${PACKAGE_WORK_DIR}"
+  PACKAGE_WORK_DIR=""
+  zypper --non-interactive addrepo --check --refresh https://rpm.grafana.com grafana || true
+  zypper --non-interactive --gpg-auto-import-keys refresh grafana
+  if [[ "${mode}" == "update" ]]; then
+    zypper --non-interactive update alloy
+  else
+    zypper --non-interactive --repo grafana install alloy
+  fi
+}
+
+install_repository_package() {
+  local mode="${1:-install}"
+  local action_label="安装"
+  [[ "${mode}" != "update" ]] || action_label="更新"
+  [[ "${ALLOY_VERSION}" == "latest" ]] || \
+    die "ALLOY_VERSION 仅适用于 Release 安装；官方软件源安装请保持 ALLOY_VERSION=latest"
+  info "将配置 Grafana 官方软件源并通过系统包管理器${action_label} Alloy"
+  systemctl stop alloy.service >/dev/null 2>&1 || true
+  if command -v apt-get >/dev/null 2>&1; then
+    install_debian_repository_package "${mode}"
+  elif command -v dnf >/dev/null 2>&1; then
+    install_rpm_repository_package dnf "${mode}"
+  elif command -v yum >/dev/null 2>&1; then
+    install_rpm_repository_package yum "${mode}"
+  elif command -v zypper >/dev/null 2>&1; then
+    install_suse_repository_package "${mode}"
+  else
+    die "不支持当前发行版；官方软件源安装需要 apt-get、dnf、yum 或 zypper"
+  fi
+  systemctl stop alloy.service >/dev/null 2>&1 || true
+  result "Grafana 官方软件源 Alloy 软件包${action_label}完成"
+}
+
+install_selected_package() {
+  local mode="${1:-install}"
+  case "${ALLOY_INSTALL_METHOD}" in
+    repository) install_repository_package "${mode}" ;;
+    release) install_official_package ;;
+    *) die "未知 Alloy 安装方式：${ALLOY_INSTALL_METHOD}" ;;
+  esac
 }
 
 install_official_package() {
@@ -1335,9 +1516,12 @@ configure_probe() {
 
   if [[ "${mode}" == "install" ]]; then
     printf '\n'
-    step "安装 Grafana Alloy 官方软件包"
-    info "将从 GitHub Release 下载匹配当前系统的 DEB/RPM，并校验官方 SHA-256"
-    install_official_package
+    step "安装 Grafana Alloy（$(install_method_label)）"
+    if [[ "${ALLOY_INSTALL_METHOD}" == "release" ]]; then
+      info "将从 GitHub Release 下载匹配当前系统的 DEB/RPM，并校验官方 SHA-256"
+    fi
+    install_selected_package install
+    persist_install_method
     result "Grafana Alloy 官方软件包安装完成"
   fi
 
@@ -1363,9 +1547,10 @@ update_probe() {
   result "现有配置校验通过"
 
   printf '\n'
-  step "更新 Grafana Alloy 官方软件包"
+  step "更新 Grafana Alloy（$(install_method_label)）"
   info "现有配置、mTLS 证书和数据不会被修改"
-  install_official_package
+  install_selected_package update
+  persist_install_method
   systemctl restart alloy.service
   systemctl enable alloy.service >/dev/null
   systemctl is-active --quiet alloy.service || die "更新后 alloy.service 启动失败，请查看 journalctl -u alloy"
@@ -1390,7 +1575,7 @@ show_status() {
 
   print_card "${status_color}" "运行状态" \
     "安装版本" "${version:-未安装}" \
-    "安装方式" "官方 Release DEB/RPM 软件包" \
+    "安装方式" "$(install_method_label)" \
     "服务状态" "${active:-未知}" \
     "开机自启" "${enabled:-未知}" \
     "节点名称" "${MONITOR_NAME:-未配置}" \
@@ -1515,6 +1700,7 @@ main() {
   step "检查运行权限和基础依赖"
   require_root
   require_commands awk head rm sed systemctl
+  initialize_install_method
   result "root 权限和基础依赖检查通过"
 
   if [[ "${requested_action}" == "install" || "${requested_action}" == "--install" || "${requested_action}" == "-i" ]]; then

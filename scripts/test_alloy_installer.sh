@@ -8,7 +8,7 @@ NODE_EXPORTER_INSTALLER="${ROOT_DIR}/scripts/probes/node_exporter/install.sh"
 
 bash -n "${INSTALLER}" "${NODE_EXPORTER_INSTALLER}"
 
-unset PROMETHEUS_MTLS_ENABLED LOKI_MTLS_ENABLED MONITOR_NAME
+unset PROMETHEUS_MTLS_ENABLED LOKI_MTLS_ENABLED MONITOR_NAME ALLOY_INSTALL_METHOD
 ALLOY_INSTALLER_SOURCE_ONLY=1 source "${INSTALLER}"
 if [[ "${PROMETHEUS_MTLS_ENABLED}" != "1" || "${LOKI_MTLS_ENABLED}" != "1" ]]; then
   printf 'Alloy 首次配置没有默认启用 Prometheus/Loki mTLS\n' >&2
@@ -81,14 +81,23 @@ printf '\n' >"${TEST_INPUT}"
 INTERACTIVE_DEVICE="${TEST_INPUT}"
 SELECTED_ACTION="status"
 choose_install_action >/dev/null 2>&1
-if [[ "${SELECTED_ACTION}" != "install" ]]; then
-  printf 'Alloy 安装菜单默认项不是官方软件包安装\n' >&2
+if [[ "${SELECTED_ACTION}" != "install" || "${ALLOY_INSTALL_METHOD}" != "release" ]]; then
+  printf 'Alloy 安装菜单默认项不是 Release 软件包安装\n' >&2
   exit 1
 fi
 
 printf '2\n' >"${TEST_INPUT}"
 INTERACTIVE_DEVICE="${TEST_INPUT}"
 SELECTED_ACTION="status"
+choose_install_action >/dev/null 2>&1
+if [[ "${SELECTED_ACTION}" != "install" || "${ALLOY_INSTALL_METHOD}" != "repository" ]]; then
+  printf 'Alloy 安装菜单没有选择官方软件源安装\n' >&2
+  exit 1
+fi
+
+printf '3\n' >"${TEST_INPUT}"
+INTERACTIVE_DEVICE="${TEST_INPUT}"
+SELECTED_ACTION="install"
 choose_install_action >/dev/null 2>&1
 if [[ "${SELECTED_ACTION}" != "status" ]]; then
   printf 'Alloy 安装菜单没有选择查看状态\n' >&2
@@ -124,7 +133,9 @@ for expected in \
   'MONITOR_NAME=debian-web-01' \
   'Prometheus 和 Loki 均默认推荐 mTLS' \
   'ALLOY_VERSION=latest' \
-  '官方 DEB/RPM' \
+  'ALLOY_INSTALL_METHOD=repository' \
+  'Grafana 官方 apt/rpm 软件源' \
+  'GitHub Release DEB/RPM 直装' \
   '不安装独立二进制' \
   '普通卸载保留 /etc/alloy 和 /var/lib/alloy'; do
   grep -Fq -- "${expected}" <<<"${HELP_OUTPUT}" || {
@@ -143,6 +154,14 @@ for expected in \
   'begin_config_transaction()' \
   'restore_config_transaction()' \
   'PACKAGE_WAS_INSTALLED' \
+  'INSTALL_METHOD_FILE' \
+  'persist_install_method()' \
+  'install_repository_package()' \
+  'apt-get update' \
+  'apt-get -o Dpkg::Options::=--force-confold install -y alloy' \
+  'https://apt.grafana.com stable main' \
+  'https://apt.grafana.com/gpg-full.key' \
+  'https://rpm.grafana.com/gpg.key' \
   'choose_backend_mtls_mode()' \
   '确认接受风险并让 ${label} 使用 HTTP' \
   'read_editable()' \
@@ -160,18 +179,12 @@ for expected in \
   'prometheus_tls_config=""' \
   'alloy validate "${temp_file}"' \
   'rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"' \
-  '"未清理"' \
-  '不会添加 Grafana 软件源'; do
+  '"未清理"'; do
   grep -Fq -- "${expected}" "${INSTALLER}" || {
     printf 'Alloy 维护框架缺少：%s\n' "${expected}" >&2
     exit 1
   }
 done
-
-if grep -Fq 'gpg-full.key' "${INSTALLER}"; then
-  printf 'Alloy 不应下载包含已吊销历史密钥的 gpg-full.key\n' >&2
-  exit 1
-fi
 
 if grep -Fq 'target_label = "nodename"' "${INSTALLER}"; then
   printf 'Alloy 不应覆盖系统指标原生的 nodename 标签\n' >&2
@@ -198,6 +211,32 @@ if ! NO_COLOR=1 ALLOY_INSTALLER_SOURCE_ONLY=1 bash -c '
   exit 1
 fi
 
+if ! NO_COLOR=1 ALLOY_INSTALLER_SOURCE_ONLY=1 bash -c '
+  source "$1"
+  [[ "$(normalize_install_method package)" == "repository" ]]
+  [[ "$(normalize_install_method direct)" == "release" ]]
+  ALLOY_INSTALL_METHOD_PRESET=0
+  persisted_install_method() { return 1; }
+  package_is_installed() { return 1; }
+  grafana_repository_configured() { return 1; }
+  initialize_install_method
+  [[ "${ALLOY_INSTALL_METHOD}" == "release" ]]
+  persisted_install_method() { printf "repository\n"; }
+  initialize_install_method
+  [[ "${ALLOY_INSTALL_METHOD}" == "repository" ]]
+  install_repository_package() { [[ "$1" == "install" ]]; }
+  install_official_package() { return 1; }
+  ALLOY_INSTALL_METHOD=repository
+  install_selected_package install
+  install_repository_package() { return 1; }
+  install_official_package() { return 0; }
+  ALLOY_INSTALL_METHOD=release
+  install_selected_package update
+' _ "${INSTALLER}"; then
+  printf 'Alloy 安装来源规范化或分派失败\n' >&2
+  exit 1
+fi
+
 for expected in \
   'alloy-${version}-1.${arch}.${package_system}' \
   'sha256sum --check --status' \
@@ -207,7 +246,11 @@ for expected in \
   'detect_package_arch()' \
   'remove_official_package()' \
   'has_install_artifacts()' \
-  '官方 Release DEB/RPM 软件包'; do
+  '官方 Release DEB/RPM 软件包' \
+  'install_selected_package()' \
+  'install_debian_repository_package()' \
+  'install_rpm_repository_package()' \
+  'install_suse_repository_package()'; do
   grep -Fq -- "${expected}" "${INSTALLER}" || {
     printf 'Alloy 官方软件包安装器缺少：%s\n' "${expected}" >&2
     exit 1
@@ -218,9 +261,7 @@ for forbidden in \
   'install_binary_backend()' \
   'write_binary_service()' \
   'create_binary_service_account()' \
-  'alloy-linux-${arch}.zip' \
-  'ALLOY_INSTALL_METHOD' \
-  'https://apt.grafana.com'; do
+  'alloy-linux-${arch}.zip'; do
   if grep -Fq -- "${forbidden}" "${INSTALLER}"; then
     printf 'Alloy 安装器仍包含已移除的安装逻辑：%s\n' "${forbidden}" >&2
     exit 1

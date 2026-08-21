@@ -84,7 +84,7 @@
     ├── node_exporter.service -> ../node_exporter.service
     └── alloy.service -> <发行版软件包提供的 alloy.service>
 
-# Alloy 仓库配置（只会出现当前发行版对应的一组）
+# Alloy 仓库配置（选择官方软件源安装时，只会出现当前发行版对应的一组）
 /etc/apt/keyrings/grafana.asc             # Debian/Ubuntu
 /etc/apt/sources.list.d/grafana.list      # Debian/Ubuntu
 /etc/yum.repos.d/grafana.repo             # RHEL/Fedora
@@ -268,6 +268,7 @@ Alloy 通过发行版包管理器安装。脚本明确写入或修改：
 ```text
 /etc/alloy/config.alloy
 /etc/alloy/monitor.name        # 指标 instance/host 与日志 host 的节点名称
+/etc/alloy/install-method      # repository 或 release，供后续更新沿用
 /etc/alloy/tls/             # 对任一中心启用 mTLS 时
 ├── prometheus-ca.crt
 ├── prometheus-client.crt
@@ -283,7 +284,7 @@ alloy 用户的 systemd-journal、adm 附加组成员关系（对应组存在时
 
 Alloy 对 `/var/lib/alloy/` 内部结构拥有完整控制权，软件包版本、启用组件和队列状态都可能产生新的子目录或文件；清理边界按整个目录处理，而不是只处理当前已知文件名。
 
-根据发行版，还会新增 Grafana 软件源：
+选择“Grafana 官方软件源安装”时，根据发行版还会新增：
 
 ```text
 Debian/Ubuntu:
@@ -299,9 +300,9 @@ SUSE/openSUSE:
   RPM 密钥数据库中的 Grafana 签名密钥
 ```
 
-Alloy 软件包自身还会安装发行版管理的二进制、systemd unit、默认环境文件和 `alloy` 系统账号；具体路径由对应版本的软件包决定。
+选择“GitHub Release 软件包安装”时不会新增上述仓库文件。两种方式都会安装由发行版包管理器登记的官方 DEB/RPM；软件包自身还会安装二进制、systemd unit、默认环境文件和 `alloy` 系统账号，具体路径由对应版本的软件包决定。
 
-首次安装完成后，再次运行脚本会进入维护菜单。选择“仅重新配置”不会刷新软件源或下载软件包；脚本直接编辑受管证书，使用 `alloy validate` 校验新配置，并且只在服务成功重启后提交修改。证书、配置校验失败或服务启动失败时会即时恢复操作前的 `/etc/alloy/` 内容，不生成 `.rejected-*` 残留文件。关闭 Loki mTLS 时，不再使用的三个 Loki 客户端证书文件会即时删除。
+首次安装完成后，再次运行脚本会进入维护菜单。更新操作根据 `/etc/alloy/install-method` 沿用软件源或 Release 方式；旧安装没有记录时，脚本会根据 Grafana 仓库配置推断。选择“仅重新配置”不会刷新软件源或下载软件包；脚本直接编辑受管证书，使用 `alloy validate` 校验新配置，并且只在服务成功重启后提交修改。证书、配置校验失败或服务启动失败时会即时恢复操作前的 `/etc/alloy/` 内容，不生成 `.rejected-*` 残留文件。关闭 Loki mTLS 时，不再使用的三个 Loki 客户端证书文件会即时删除。
 
 普通卸载会停止、禁用服务并调用 `apt-get remove`、`dnf remove`、`yum remove` 或 `zypper remove`，但脚本不会主动删除：
 
@@ -312,7 +313,7 @@ Grafana 软件源与签名密钥
 alloy 用户、组及其附加组成员关系
 ```
 
-`purge` 会在卸载软件包后额外删除 `/etc/alloy/` 和 `/var/lib/alloy/`。它仍不会删除 Grafana 软件源、签名密钥或主动删除 `alloy` 系统账号；包管理器自身是否清理账号及其他包文件取决于发行版的软件包卸载脚本。Debian/Ubuntu 使用的是 `apt-get remove`，不是 `apt-get purge`。
+`purge` 会在卸载软件包后额外删除 `/etc/alloy/` 和 `/var/lib/alloy/`。它仍不会删除 Grafana 软件源、签名密钥或主动删除 `alloy` 系统账号；包管理器自身是否清理账号及其他包文件取决于发行版的软件包卸载脚本。Debian/Ubuntu 的普通卸载使用 `apt-get remove`，彻底清理使用 `apt-get purge`。
 
 卸载 Alloy 不会卸载同机存在的 node_exporter，也不会删除中心服务器上的 Prometheus/Loki 数据。
 

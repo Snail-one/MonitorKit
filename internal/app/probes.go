@@ -100,7 +100,7 @@ func (a *App) showAlloyAccessCard(ctx context.Context) {
 		}
 	}
 	a.ui.Card(ui.Neutral, "Grafana Alloy 统一探针安装命令",
-		ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | sudo bash", Detail: "从官方 Release 下载 DEB/RPM，校验 SHA-256 后安装，不添加软件源"},
+		ui.Field{Value: "curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | sudo bash", Detail: "默认安装 Release DEB/RPM，也可选择 Grafana 官方软件源"},
 		ui.Field{Label: "Prometheus 根地址", Value: promAddress, Detail: "当前监听端口：" + portText(promConfig.ListenPort)},
 		ui.Field{Label: "Prometheus 接收状态", Value: promReady},
 		ui.Field{Label: "Loki 根地址", Value: lokiAddress, Detail: "当前监听端口：" + portText(lokiConfig.ListenPort)},

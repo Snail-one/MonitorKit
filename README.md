@@ -121,19 +121,20 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/p
   sudo bash
 ```
 
-首次运行会显示操作菜单，默认从 Grafana Alloy 官方 GitHub Release 下载与当前
-系统匹配的 DEB/RPM 软件包。固定软件包版本时：
+首次运行会显示安装方式菜单。默认从官方 GitHub Release 下载与当前系统匹配的
+DEB/RPM 软件包；也可以选择按 Grafana 官方标准流程添加软件源，再通过 `apt`、
+`dnf`、`yum` 或 `zypper` 安装。固定 Release 直装版本时：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/probes/alloy/install.sh | \
-  sudo env ALLOY_VERSION=1.18.0 bash
+  sudo env ALLOY_INSTALL_METHOD=release ALLOY_VERSION=1.18.0 bash
 ```
 
-脚本支持 dpkg 和 rpm 系统以及 AMD64、ARM64、PPC64LE、s390x 架构，从 Release
-API 读取版本和官方 SHA-256 digest，校验后交给 `dpkg` 或 `rpm` 安装。脚本不会
-添加 Grafana 软件源，也不保留独立二进制安装方式；`/usr/bin/alloy`、官方
-systemd 单元和 `alloy` 系统账号均由 DEB/RPM 软件包管理。更新和卸载也沿用同一
-软件包流程。
+软件源模式会安装官方签名密钥和稳定版仓库，刷新索引后安装 `alloy`，以后可随
+系统软件包一起更新。Release 模式支持 dpkg 和 rpm 系统以及 AMD64、ARM64、
+PPC64LE、s390x 架构，从 Release API 读取版本和官方 SHA-256 digest，校验后
+交给 `dpkg` 或 `rpm` 安装。选择记录在 `/etc/alloy/install-method`，脚本更新时
+自动沿用；两种模式都使用官方 DEB/RPM，不保留独立二进制安装方式。
 
 node_exporter 指标探针：
 
@@ -143,7 +144,7 @@ curl -fsSL https://raw.githubusercontent.com/Snail-one/MonitorKit/main/scripts/p
 
 脚本会先要求填写唯一的监控节点名称，再分别询问 Prometheus、Loki 是否启用 mTLS，首次配置均默认推荐启用。两者都启用 mTLS 时，可选择录入一套共享证书或分别配置；共享模式只录入一次 CA、完整客户端证书和私钥，校验后仍分别写入 `prometheus-*` 与 `loki-*` 受管文件，两个服务的地址和 `server_name` 始终分别设置。指标统一写入 `job="alloy-one"`，节点名称会同时写入指标的 `instance`、`host` 标签和日志的 `host` 标签。journal 日志还会带上 `unit`（systemd 服务名）和 `ident`，Grafana 可按主机或服务筛选。系统指标原生提供的 `nodename` 保持真实主机名，不会被脚本覆盖。启用 mTLS 时，裸 `IP:端口` 自动补为 `https://` 并填写客户端证书；选择不启用时会先警告明文传输风险，再次确认后裸地址才补为 `http://`。通过管道执行时会从 `/dev/tty` 读取输入，不会与下载脚本使用的标准输入冲突。
 
-Alloy 已安装时，再次运行同一命令会进入维护菜单，可选择更新官方软件包、仅重新配置、查看状态、普通卸载或彻底清理。“仅重新配置”可修改节点名称；节点名称持久化在 `/etc/alloy/monitor.name`。交互配置会按 `vim → nano → vi` 自动选择编辑器，直接填写 `/etc/alloy/tls/` 中的受管 PEM 文件；配置和服务启动失败会恢复操作前的配置、节点名称与证书，不保留无效副本。
+Alloy 已安装时，再次运行同一命令会进入维护菜单，可选择按已记录来源更新官方软件包、仅重新配置、查看状态、普通卸载或彻底清理。“仅重新配置”可修改节点名称；节点名称持久化在 `/etc/alloy/monitor.name`。交互配置会按 `vim → nano → vi` 自动选择编辑器，直接填写 `/etc/alloy/tls/` 中的受管 PEM 文件；配置和服务启动失败会恢复操作前的配置、节点名称与证书，不保留无效副本。
 
 也可以直接执行维护动作：
 
