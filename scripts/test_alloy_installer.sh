@@ -144,7 +144,7 @@ for expected in \
   'Grafana 官方 apt/rpm 软件源' \
   'GitHub Release DEB/RPM 直装' \
   '不安装独立二进制' \
-  '普通卸载保留 /etc/alloy、/var/lib/alloy 和 Grafana 软件源'; do
+  '普通卸载保留 /etc/alloy、/var/lib/alloy、Grafana Cloud systemd 凭据和软件源'; do
   grep -Fq -- "${expected}" <<<"${HELP_OUTPUT}" || {
     printf 'Alloy 帮助缺少：%s\n' "${expected}" >&2
     exit 1
@@ -165,6 +165,8 @@ for expected in \
   'persist_install_method()' \
   'install_repository_package()' \
   'remove_grafana_repository()' \
+  'remove_grafana_cloud_dropin()' \
+  'rm -rf -- "${GRAFANA_CLOUD_DROPIN_DIR}"' \
   'rm -f -- /etc/apt/sources.list.d/grafana.list' \
   'rm -f -- /etc/yum.repos.d/grafana.repo' \
   'zypper --non-interactive removerepo grafana' \

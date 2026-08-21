@@ -10,6 +10,7 @@ readonly DATA_DIR="/var/lib/alloy"
 readonly TLS_DIR="${CONFIG_DIR}/tls"
 readonly MONITOR_NAME_FILE="${CONFIG_DIR}/monitor.name"
 readonly INSTALL_METHOD_FILE="${CONFIG_DIR}/install-method"
+readonly GRAFANA_CLOUD_DROPIN_DIR="/etc/systemd/system/alloy.service.d"
 
 PROMETHEUS_URL_PRESET=0
 LOKI_URL_PRESET=0
@@ -203,8 +204,10 @@ print_uninstall_card() {
   local retained="$2"
   local not_removed="Grafana 软件源、签名密钥、软件包缓存和 journald 历史日志"
   local repository_status="已保留"
+  local cloud_dropin_status="已保留"
   if [[ "${PURGE_MODE}" == "1" ]]; then
     not_removed="软件包缓存、journald 历史日志及 RPM 数据库中的共享签名密钥"
+    cloud_dropin_status="alloy.service.d 已全部删除"
     if [[ "${REPOSITORY_REMOVED}" == "1" ]]; then
       repository_status="已清理"
     else
@@ -214,6 +217,7 @@ print_uninstall_card() {
   success_card "${title}" \
     "已删除" "Alloy 软件包及其服务" \
     "配置与数据" "${retained}" \
+    "Grafana Cloud 凭据" "${cloud_dropin_status}" \
     "Grafana 软件源" "${repository_status}" \
     "未清理" "${not_removed}" \
     "系统账号" "由官方 DEB/RPM 软件包决定是否保留"
@@ -268,9 +272,10 @@ shared 模式只需提供 ALLOY_MTLS_CA_FILE、ALLOY_MTLS_CERT_FILE 和
 ALLOY_MTLS_KEY_FILE；内容会校验后分别写入 Prometheus/Loki 对应文件。
 separate 模式分别使用 PROMETHEUS_MTLS_* 和 LOKI_MTLS_* 三个证书变量。
 
-普通卸载保留 /etc/alloy、/var/lib/alloy 和 Grafana 软件源。purge 会删除配置和
-数据，并单独询问是否删除 Grafana 软件源（默认删除）；不会清理软件包缓存、
-journald 历史日志或 RPM 数据库中的共享签名密钥。
+普通卸载保留 /etc/alloy、/var/lib/alloy、Grafana Cloud systemd 凭据和软件源。
+purge 会删除配置、数据和整个 alloy.service.d，并单独询问是否删除
+Grafana 软件源（默认删除）；不会清理软件包缓存、journald 历史日志或 RPM
+数据库中的共享签名密钥。
 顶层菜单使用 0/q 安全退出，子菜单使用 0/q 取消并返回；NO_COLOR=1
 可关闭颜色，FORCE_COLOR=1 可在受支持的非交互输出中强制启用颜色。
 EOF
@@ -678,8 +683,8 @@ choose_maintenance_action() {
 }
 
 choose_uninstall_mode() {
-  local purge_targets="${CONFIG_DIR}、${DATA_DIR}、Grafana 软件源（再次确认）"
-  local irreversible_items="mTLS 证书、节点名称、配置、运行数据和仓库配置"
+  local purge_targets="${CONFIG_DIR}、${DATA_DIR}、Grafana Cloud 凭据、Grafana 软件源（再次确认）"
+  local irreversible_items="mTLS 证书、节点名称、配置、运行数据、Cloud API Key 和仓库配置"
   set_interactive_device
   menu_section "请选择卸载方式"
   menu_option "1" "普通卸载" "默认；保留 /etc/alloy 和 /var/lib/alloy"
@@ -742,6 +747,12 @@ remove_grafana_repository() {
   fi
   REPOSITORY_REMOVED=1
   result "Grafana 官方软件源配置已清理"
+}
+
+remove_grafana_cloud_dropin() {
+  rm -rf -- "${GRAFANA_CLOUD_DROPIN_DIR}"
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  result "Alloy 的 systemd drop-in 目录已全部清理"
 }
 
 detect_package_system() {
@@ -1674,6 +1685,9 @@ uninstall_probe() {
     else
       info "已按用户选择保留 Grafana 官方软件源"
     fi
+    printf '\n'
+    step "清理 Grafana Cloud 官方脚本凭据"
+    remove_grafana_cloud_dropin
     printf '\n'
     step "删除受管配置、mTLS 证书和运行数据"
     rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"
