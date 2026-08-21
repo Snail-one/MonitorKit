@@ -23,6 +23,7 @@ readonly CONFIG_DIR="/etc/node_exporter"
 readonly TLS_DIR="${CONFIG_DIR}/tls"
 readonly WEB_CONFIG_FILE="${CONFIG_DIR}/web.yml"
 readonly SERVICE_FILE="/etc/systemd/system/node_exporter.service"
+readonly SERVICE_DROPIN_DIR="/etc/systemd/system/node_exporter.service.d"
 
 RESET=""
 BOLD=""
@@ -431,7 +432,7 @@ choose_install_mode() {
   menu_option "1" "mTLS 安装" "默认；HTTPS 并验证 Prometheus 客户端证书"
   menu_option "2" "HTTP 安装" "明文指标端点；建议配合防火墙"
   menu_option "3" "普通卸载" "保留配置、证书和系统账号"
-  menu_option "4" "彻底清理" "永久删除配置、证书和系统账号"
+  menu_option "4" "彻底清理" "永久删除配置、证书、systemd drop-in 和系统账号"
   menu_exit "0/q" "退出"
   while true; do
     local choice=""
@@ -474,7 +475,7 @@ choose_uninstall_mode() {
   set_interactive_device
   menu_section "请选择卸载方式"
   menu_option "1" "普通卸载" "默认；保留配置、证书和系统账号"
-  menu_option "2" "彻底清理" "永久删除配置、证书和系统账号"
+  menu_option "2" "彻底清理" "永久删除配置、证书、systemd drop-in 和系统账号"
   menu_exit "0/q" "取消并返回"
   while true; do
     local choice=""
@@ -488,8 +489,8 @@ choose_uninstall_mode() {
       2)
         PURGE_MODE=1
         danger_card "彻底清理警告" \
-          "将删除" "${CONFIG_DIR}、${BIN_DIR}/node_exporter" \
-          "不可恢复" "mTLS 证书、服务配置和系统账号"
+          "将删除" "${CONFIG_DIR}、${BIN_DIR}/node_exporter、${SERVICE_DROPIN_DIR}" \
+          "不可恢复" "mTLS 证书、服务配置、全部 systemd drop-in 和系统账号"
         return
         ;;
       0|q|Q)
@@ -510,7 +511,7 @@ choose_maintenance_action() {
   menu_option "1" "检查更新" "查询最新版本并按需下载"
   menu_option "2" "仅重新配置" "默认；不访问 API、不下载安装包"
   menu_option "3" "普通卸载" "保留配置、证书和系统账号"
-  menu_option "4" "彻底清理" "永久删除配置、证书和系统账号"
+  menu_option "4" "彻底清理" "永久删除配置、证书、systemd drop-in 和系统账号"
   menu_exit "0/q" "退出"
   while true; do
     local choice=""
@@ -816,7 +817,7 @@ uninstall_node_exporter() {
   case "${uninstall_mode}" in
     purge)
       PURGE_MODE=1
-      warn "将彻底删除 mTLS 配置、证书和系统账号"
+      warn "将彻底删除 mTLS 配置、证书、systemd drop-in 和系统账号"
       ;;
     keep)
       PURGE_MODE=0
@@ -829,7 +830,7 @@ uninstall_node_exporter() {
   esac
 
   if [[ "${PURGE_MODE}" == "1" ]] && detect_interactive_device; then
-    if ! ask_yes_no_default "确认永久删除 node_exporter 配置、证书和系统账号" no; then
+    if ! ask_yes_no_default "确认永久删除 node_exporter 配置、证书、systemd drop-in 和系统账号" no; then
       RETURN_TO_MAIN=1
       warning_card "彻底清理已取消" \
         "已保留" "${CONFIG_DIR}、node_exporter 程序和系统账号" \
@@ -855,17 +856,18 @@ uninstall_node_exporter() {
   result "node_exporter 服务和程序文件已删除"
   if [[ "${PURGE_MODE}" == "1" ]]; then
     printf '\n'
-    step "彻底清理 mTLS 配置、证书和账号"
-    rm -rf -- "${CONFIG_DIR}"
+    step "彻底清理 mTLS 配置、证书、systemd drop-in 和账号"
+    rm -rf -- "${CONFIG_DIR}" "${SERVICE_DROPIN_DIR}"
+    systemctl daemon-reload
     if id "${EXPORTER_USER}" >/dev/null 2>&1; then
       userdel "${EXPORTER_USER}"
     fi
     if getent group "${EXPORTER_GROUP}" >/dev/null; then
       groupdel "${EXPORTER_GROUP}"
     fi
-    result "mTLS 配置、证书和系统账号已删除"
+    result "mTLS 配置、证书、systemd drop-in 和系统账号已删除"
     print_result_card "彻底清理完成" \
-      "已删除" "程序、服务、${CONFIG_DIR} 和系统账号" \
+      "已删除" "程序、服务、${CONFIG_DIR}、${SERVICE_DROPIN_DIR} 和系统账号" \
       "未清理" "下载缓存以外的系统日志和 Prometheus 中已有指标"
   else
     info "mTLS 配置和证书已保留：${CONFIG_DIR}"

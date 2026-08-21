@@ -254,6 +254,7 @@ loki 用户与组
 ├── web.yml            # 使用 mTLS 时
 └── tls/               # 使用 mTLS 时的证书和私钥
 /etc/systemd/system/node_exporter.service
+/etc/systemd/system/node_exporter.service.d/   # 自定义 systemd drop-in（如存在）
 /etc/systemd/system/multi-user.target.wants/node_exporter.service
 系统用户：node_exporter
 系统组：node_exporter
@@ -261,7 +262,7 @@ loki 用户与组
 
 普通卸载删除二进制、unit 和启用链接，但保留 `/etc/node_exporter/`、证书以及 `node_exporter` 用户与组。
 
-`purge` 会删除 `/etc/node_exporter/`，并删除 `node_exporter` 用户与组。node_exporter 不创建独立历史数据目录。
+`purge` 会删除 `/etc/node_exporter/`、整个 `/etc/systemd/system/node_exporter.service.d/`，并删除 `node_exporter` 用户与组。drop-in 目录中的所有自定义覆盖文件都会删除。node_exporter 不创建独立历史数据目录。
 
 ## Grafana Alloy 统一探针
 

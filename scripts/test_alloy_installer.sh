@@ -298,6 +298,16 @@ for expected in \
   }
 done
 
+for expected in \
+  'SERVICE_DROPIN_DIR="/etc/systemd/system/node_exporter.service.d"' \
+  'rm -rf -- "${CONFIG_DIR}" "${SERVICE_DROPIN_DIR}"' \
+  'systemd drop-in'; do
+  grep -Fq -- "${expected}" "${NODE_EXPORTER_INSTALLER}" || {
+    printf 'node_exporter 彻底清理缺少：%s\n' "${expected}" >&2
+    exit 1
+  }
+done
+
 printf 'q\n' >"${TEST_INPUT}"
 if ! NO_COLOR=1 NODE_EXPORTER_INSTALLER_SOURCE_ONLY=1 NODE_TEST_INPUT="${TEST_INPUT}" \
   bash -c '
